@@ -39,9 +39,8 @@ type callback = {
   disconnection : P2p_peer.Id.t -> unit;
 }
 
-module Block_hash_cache : Ringo.CACHE_MAP with type key = Block_hash.t =
-  (val Ringo.(map_maker ~replacement:LRU ~overflow:Strong ~accounting:Precise))
-    (Block_hash)
+module Block_hash_cache : Aches.Vache.MAP with type key = Block_hash.t =
+  Aches.Vache.Map (Aches.Vache.LRU_Precise) (Aches.Vache.Strong) (Block_hash)
 
 type chain_db = {
   chain_store : Store.Chain.t;

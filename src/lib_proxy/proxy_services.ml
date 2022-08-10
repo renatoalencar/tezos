@@ -166,10 +166,8 @@ module Env_cache =
      - accounting:Sloppy: because ringo specifies that Sloppy's antagonist
        (Precise) should mainly be used when removing a lot or inserting the same
        key often. We do none of that, so Sloppy seems better. *)
-    (val Ringo.(map_maker ~replacement:LRU ~overflow:Strong ~accounting:Sloppy))
-    (Env_cache_key_hashed_type)
-
-module Env_cache_lwt = Ringo_lwt.Functors.Make_result (Env_cache)
+    Aches.Rache.Transfer (Aches.Rache.LRU) (Env_cache_key_hashed_type)
+module Env_cache_lwt = Aches_lwt.Lache.Make_result (Env_cache)
 
 let schedule_clearing (printer : Tezos_client_base.Client_context.printer)
     (rpc_context : RPC_context.generic)
@@ -343,7 +341,7 @@ let build_directory (printer : Tezos_client_base.Client_context.printer)
       in
       return initial_context
     in
-    Env_cache_lwt.find_or_replace envs_cache key compute_value
+    Env_cache_lwt.bind_or_put envs_cache key compute_value Lwt.return
   in
   let get_env_rpc_context' chain block =
     let open Lwt_syntax in

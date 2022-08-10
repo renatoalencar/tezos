@@ -698,7 +698,7 @@ module Context = struct
 
   *)
   module Cache_cache =
-  Ringo_lwt.Functors.Make_result_presized (Ringo.SingletonMap (struct
+  Aches_lwt.Lache.Make_result (Aches.Rache.SingletonTransferMap (struct
     type t = Block_hash.t
 
     let equal = Block_hash.equal
@@ -706,7 +706,7 @@ module Context = struct
     let hash = Block_hash.hash
   end))
 
-  let cache_cache : (cache, error trace) Cache_cache.t = Cache_cache.create ()
+  let cache_cache : (cache, error trace) Cache_cache.t = Cache_cache.create (-1)
 
   let load_cache block_hash (Context ctxt) mode builder =
     let open Lwt_result_syntax in
@@ -714,11 +714,14 @@ module Context = struct
       match mode with
       | `Force_load ->
           let p = load_cache (Context ctxt) `Load builder in
-          Cache_cache.replace cache_cache block_hash p ;
+          Cache_cache.put cache_cache block_hash p ;
           p
       | (`Load | `Lazy | `Inherited _) as mode ->
-          Cache_cache.find_or_replace cache_cache block_hash (fun _block_hash ->
-              load_cache (Context ctxt) mode builder)
+          Cache_cache.bind_or_put
+            cache_cache
+            block_hash
+            (fun _block_hash -> load_cache (Context ctxt) mode builder)
+            (fun p -> Lwt.return p)
     in
     return (Context {ctxt with cache})
 
