@@ -62,7 +62,7 @@ module Memory_table (P : PARAMETERS) :
   module Htbl = Hashtbl.MakeSeeded (struct
     type t = P.key
 
-    let hash = Hashtbl.seeded_hash
+    let seeded_hash = Hashtbl.seeded_hash
 
     let equal = ( = )
   end)

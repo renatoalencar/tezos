@@ -132,7 +132,7 @@ module Table = Hashtbl.MakeSeeded (struct
 
   let equal = Id.equal
 
-  let hash = Hashtbl.seeded_hash
+  let seeded_hash = Hashtbl.seeded_hash
 end)
 
 module Filter = struct

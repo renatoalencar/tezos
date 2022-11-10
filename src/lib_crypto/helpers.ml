@@ -206,7 +206,7 @@ struct
     include Hashtbl.MakeSeeded (struct
       type t = H.t
 
-      let hash = H.seeded_hash
+      let seeded_hash = H.seeded_hash
 
       let equal = H.equal
     end)

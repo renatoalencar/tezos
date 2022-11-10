@@ -45,7 +45,7 @@ module String = struct
 
     let equal = String.equal
 
-    let hash = Hashtbl.seeded_hash
+    let seeded_hash = Hashtbl.seeded_hash
   end)
 
   module Map = Tezos_error_monad.TzLwtreslib.Map.Make (String)

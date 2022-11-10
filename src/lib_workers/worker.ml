@@ -228,7 +228,7 @@ struct
   module Nametbl = Hashtbl.MakeSeeded (struct
     type t = Name.t
 
-    let hash = Hashtbl.seeded_hash
+    let seeded_hash = Hashtbl.seeded_hash
 
     let equal = Name.equal
   end)
