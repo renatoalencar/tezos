@@ -38,9 +38,9 @@ type error +=
       layer1_inbox : Sc_rollup.Inbox.t;
       inbox : Sc_rollup.Inbox.t;
     }
-  | Missing_PVM_state of Block_hash.t * Raw_level.t
+  | Missing_PVM_state of Block_hash.t * Int32.t
   | Cannot_checkout_context of Block_hash.t * string option
-  | Cannot_retrieve_reveal of Sc_rollup.Input_hash.t
+  | Cannot_retrieve_reveal of Sc_rollup.Reveal_hash.t
 
 type error +=
   | Lost_game of
@@ -175,13 +175,11 @@ let () =
     ~pp:(fun ppf (block, level) ->
       Format.fprintf
         ppf
-        "Cannot retrieve PVM state for block %a at level %a"
+        "Cannot retrieve PVM state for block %a at level %ld"
         Block_hash.pp
         block
-        Raw_level.pp
         level)
-    Data_encoding.(
-      obj2 (req "block" Block_hash.encoding) (req "level" Raw_level.encoding))
+    Data_encoding.(obj2 (req "block" Block_hash.encoding) (req "level" int32))
     (function
       | Missing_PVM_state (block, level) -> Some (block, level) | _ -> None)
     (fun (block, level) -> Missing_PVM_state (block, level)) ;
@@ -247,8 +245,8 @@ let () =
       Format.fprintf
         ppf
         "The node cannot retrieve a reveal for hash %a"
-        Sc_rollup.Input_hash.pp
+        Sc_rollup.Reveal_hash.pp
         hash)
-    Data_encoding.(obj1 (req "hash" Sc_rollup.Input_hash.encoding))
+    Data_encoding.(obj1 (req "hash" Sc_rollup.Reveal_hash.encoding))
     (function Cannot_retrieve_reveal hash -> Some hash | _ -> None)
     (fun hash -> Cannot_retrieve_reveal hash)

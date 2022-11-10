@@ -934,8 +934,6 @@ type stresstest_contract_parameters = {
     - [gas_limit] is the custom gas limit
     - [--transfers <transfers>]
     - [--tps <tps>]
-    - [--single-op-per-pkh-per-block] (if the argument
-      [single_op_per_pkh_per_block] is [true])
     - [--fresh_probabilty <probability>], probability from 0.0 to 1.0 that
       new bootstrap accounts will be created during the stress test
     - [--smart-contract-parameters] is the map of parameters for
@@ -952,7 +950,6 @@ val stresstest :
   ?gas_limit:int ->
   ?transfers:int ->
   ?tps:int ->
-  ?single_op_per_pkh_per_block:bool ->
   ?fresh_probability:float ->
   ?smart_contract_parameters:(string * stresstest_contract_parameters) list ->
   t ->
@@ -969,7 +966,6 @@ val spawn_stresstest :
   ?gas_limit:int ->
   ?transfers:int ->
   ?tps:int ->
-  ?single_op_per_pkh_per_block:bool ->
   ?fresh_probability:float ->
   ?smart_contract_parameters:(string * stresstest_contract_parameters) list ->
   t ->
@@ -1415,14 +1411,13 @@ module Sc_rollup : sig
     t ->
     Process.t
 
-  (** Run [octez-client send rollup message <msg> from <src> to <dst>]. *)
+  (** Run [octez-client send rollup message <msg> from <src>]. *)
   val send_message :
     ?hooks:Process.hooks ->
     ?wait:string ->
     ?burn_cap:Tez.t ->
     msg:string ->
     src:string ->
-    dst:string ->
     t ->
     unit Lwt.t
 
@@ -1433,7 +1428,6 @@ module Sc_rollup : sig
     ?burn_cap:Tez.t ->
     msg:string ->
     src:string ->
-    dst:string ->
     t ->
     Process.t
 

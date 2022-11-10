@@ -26,23 +26,6 @@
 
 module Int_set = Set.Make (Compare.Int)
 
-module Sc_rollup_address_comparable = struct
-  include Sc_rollup_repr.Address
-
-  (* TODO: https://gitlab.com/tezos/tezos/-/issues/2648
-     Fill in real benchmarked values.
-     Need to create benchmark and fill in values.
-  *)
-  let compare_cost _rollup = Saturation_repr.safe_int 15
-end
-
-(* This will not create the map yet, as functions to consume gas have not
-   been defined yet. However, it will make the type of the carbonated map
-   available to be used in the definition of type back.
-*)
-module Sc_rollup_address_map_builder =
-  Carbonated_map.Make_builder (Sc_rollup_address_comparable)
-
 (*
 
    Gas levels maintenance
@@ -263,7 +246,7 @@ type back = {
     Tez_repr.t Signature.Public_key_hash.Map.t option;
   tx_rollup_current_messages :
     Tx_rollup_inbox_repr.Merkle.tree Tx_rollup_repr.Map.t;
-  sc_rollup_current_messages : Context.tree Sc_rollup_address_map_builder.t;
+  sc_rollup_current_messages : Context.tree option;
   dal_slot_fee_market : Dal_slot_repr.Slot_market.t;
   (* DAL/FIXME https://gitlab.com/tezos/tezos/-/issues/3105
 
@@ -557,26 +540,13 @@ let consume_gas ctxt cost =
       else error Operation_quota_exceeded
 
 let check_enough_gas ctxt cost =
-  consume_gas ctxt cost >>? fun _ -> Result.return_unit
+  consume_gas ctxt cost >>? fun (_ : t) -> Result.return_unit
 
 let gas_consumed ~since ~until =
   match (gas_level since, gas_level until) with
   | Limited {remaining = before}, Limited {remaining = after} ->
       Gas_limit_repr.Arith.sub before after
   | _, _ -> Gas_limit_repr.Arith.zero
-
-(* Once gas consuming functions have been defined,
-   we can instantiate the carbonated map.
-   See [Sc_rollup_carbonated_map_maker] above.
-*)
-
-module Gas = struct
-  type context = t
-
-  let consume = consume_gas
-end
-
-module Sc_rollup_carbonated_map = Sc_rollup_address_map_builder.Make (Gas)
 
 type missing_key_kind = Get | Set | Del | Copy
 
@@ -842,7 +812,7 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
         sampler_state = Cycle_repr.Map.empty;
         stake_distribution_for_current_cycle = None;
         tx_rollup_current_messages = Tx_rollup_repr.Map.empty;
-        sc_rollup_current_messages = Sc_rollup_carbonated_map.empty;
+        sc_rollup_current_messages = None;
         dal_slot_fee_market =
           Dal_slot_repr.Slot_market.init
             ~length:constants.Constants_parametric_repr.dal.number_of_slots;
@@ -852,7 +822,7 @@ let prepare ~level ~predecessor_timestamp ~timestamp ctxt =
       };
   }
 
-type previous_protocol = Genesis of Parameters_repr.t | Kathmandu_014
+type previous_protocol = Genesis of Parameters_repr.t | Lima_015
 
 let check_and_update_protocol_version ctxt =
   (Context.find ctxt version_key >>= function
@@ -864,8 +834,7 @@ let check_and_update_protocol_version ctxt =
          failwith "Internal error: previously initialized context."
        else if Compare.String.(s = "genesis") then
          get_proto_param ctxt >|=? fun (param, ctxt) -> (Genesis param, ctxt)
-       else if Compare.String.(s = "kathmandu_014") then
-         return (Kathmandu_014, ctxt)
+       else if Compare.String.(s = "lima_015") then return (Lima_015, ctxt)
        else Lwt.return @@ storage_error (Incompatible_protocol_version s))
   >>=? fun (previous_proto, ctxt) ->
   Context.add ctxt version_key (Bytes.of_string version_value) >|= fun ctxt ->
@@ -916,7 +885,7 @@ let prepare_first_block ~level ~timestamp ctxt =
       Level_repr.create_cycle_eras [cycle_era] >>?= fun cycle_eras ->
       set_cycle_eras ctxt cycle_eras >>=? fun ctxt ->
       add_constants ctxt param.constants >|= ok
-  | Kathmandu_014 ->
+  | Lima_015 ->
       get_previous_protocol_constants ctxt >>= fun c ->
       let tx_rollup =
         Constants_parametric_repr.
@@ -950,82 +919,43 @@ let prepare_first_block ~level ~timestamp ctxt =
       let dal =
         Constants_parametric_repr.
           {
-            feature_enable = false;
-            number_of_slots = 256;
-            endorsement_lag = 1;
-            availability_threshold = 50;
+            feature_enable = c.dal.feature_enable;
+            number_of_slots = c.dal.number_of_slots;
+            endorsement_lag = c.dal.endorsement_lag;
+            availability_threshold = c.dal.availability_threshold;
             cryptobox_parameters;
           }
       in
-      (* Inherit values that existed in previous protocol and haven't changed.
-         Assign values to new constants or those with new default value. *)
       let sc_rollup =
         Constants_parametric_repr.
           {
             enable = c.sc_rollup.enable;
             origination_size = c.sc_rollup.origination_size;
             challenge_window_in_blocks = c.sc_rollup.challenge_window_in_blocks;
-            (*
-
-              The following value is chosen to limit the length of inbox
-              refutation proofs. In the worst case, the length of inbox
-              refutation proofs are logarithmic (in basis 2) in the
-              number of messages in the inboxes during the commitment
-              period.
-
-              With the following value, an inbox refutation proof is
-              made of at most 35 hashes, hence a payload bounded by
-              35 * 48 bytes, which far below than the 32kb of a Tezos
-              operations.
-
-            *)
             max_number_of_messages_per_commitment_period =
-              c.sc_rollup.commitment_period_in_blocks * 10_000_000;
+              c.sc_rollup.max_number_of_messages_per_commitment_period;
             (* TODO: https://gitlab.com/tezos/tezos/-/issues/2756
                The following constants need to be refined. *)
-            stake_amount = Tez_repr.of_mutez_exn 10_000_000_000L;
+            stake_amount = c.sc_rollup.stake_amount;
             commitment_period_in_blocks =
               c.sc_rollup.commitment_period_in_blocks;
             max_lookahead_in_blocks = c.sc_rollup.max_lookahead_in_blocks;
-            (* Number of active levels kept for executing outbox messages.
-               WARNING: Changing this value impacts the storage charge for
-               applying messages from the outbox. It also requires migration for
-               remapping existing active outbox levels to new indices. *)
             max_active_outbox_levels = c.sc_rollup.max_active_outbox_levels;
-            (* Maximum number of outbox messages per level.
-               WARNING: changing this value impacts the storage cost charged
-               for applying messages from the outbox. *)
             max_outbox_messages_per_level =
               c.sc_rollup.max_outbox_messages_per_level;
-            (* The default number of required sections in a dissection *)
-            number_of_sections_in_dissection = 32;
-            timeout_period_in_blocks = 20_160;
-            (* We store multiple cemented commitments because we want to
-               allow the execution of outbox messages against cemented
-               commitments that are older than the last cemented commitment.
-               The execution of an outbox message is a manager operation,
-               and manager operations are kept in the mempool for one
-               hour. Hence we only need to ensure that an outbox message
-               can be validated against a cemented commitment produced in the
-               last hour. If we assume that the rollup is operating without
-               issues, that is no commitments are being refuted and commitments
-               are published and cemented regularly by one rollup node, we can
-               expect commitments to be cemented approximately every 15
-               minutes, or equivalently we can expect 5 commitments to be
-               published in one hour (at minutes 0, 15, 30, 45 and 60).
-               Therefore, we need to keep 5 cemented commitments to guarantee
-               that the execution of an outbox operation can always be
-               validated against a cemented commitment while it is in the
-               mempool. *)
-            max_number_of_stored_cemented_commitments = 5;
+            number_of_sections_in_dissection =
+              c.sc_rollup.number_of_sections_in_dissection;
+            timeout_period_in_blocks = c.sc_rollup.timeout_period_in_blocks;
+            max_number_of_stored_cemented_commitments =
+              c.sc_rollup.max_number_of_stored_cemented_commitments;
           }
       in
       let zk_rollup =
         Constants_parametric_repr.
           {
-            enable = false;
-            origination_size = 4_000;
-            min_pending_to_process = 10;
+            enable = c.zk_rollup.enable;
+            origination_size = c.zk_rollup.origination_size;
+            min_pending_to_process = c.zk_rollup.min_pending_to_process;
           }
       in
       let constants =
@@ -1040,7 +970,7 @@ let prepare_first_block ~level ~timestamp ctxt =
             hard_gas_limit_per_operation = c.hard_gas_limit_per_operation;
             hard_gas_limit_per_block = c.hard_gas_limit_per_block;
             proof_of_work_threshold = c.proof_of_work_threshold;
-            minimal_stake = c.tokens_per_roll;
+            minimal_stake = c.minimal_stake;
             vdf_difficulty = c.vdf_difficulty;
             seed_nonce_revelation_tip = c.seed_nonce_revelation_tip;
             origination_size = c.origination_size;
@@ -1322,12 +1252,6 @@ let record_dictator_proposal_seen ctxt = update_dictator_proposal_seen ctxt true
 
 let dictator_proposal_seen ctxt = dictator_proposal_seen ctxt
 
-module Migration_from_Kathmandu = struct
-  let reset_samplers ctxt =
-    let ctxt = update_sampler_state ctxt Cycle_repr.Map.empty in
-    ok ctxt
-end
-
 let init_sampler_for_cycle ctxt cycle seed state =
   let map = sampler_state ctxt in
   if Cycle_repr.Map.mem cycle map then error (Sampler_already_set cycle)
@@ -1530,27 +1454,11 @@ end
    the block in a in-memory map.
 *)
 module Sc_rollup_in_memory_inbox = struct
-  let current_messages ctxt rollup =
-    let open Tzresult_syntax in
-    let+ messages, ctxt =
-      Sc_rollup_carbonated_map.find
-        ctxt
-        rollup
-        ctxt.back.sc_rollup_current_messages
-    in
-    (messages, ctxt)
+  let current_messages ctxt = ctxt.back.sc_rollup_current_messages
 
-  let set_current_messages ctxt rollup tree =
-    let open Tzresult_syntax in
-    let+ sc_rollup_current_messages, ctxt =
-      Sc_rollup_carbonated_map.update
-        ctxt
-        rollup
-        (fun ctxt _prev_tree -> return (Some tree, ctxt))
-        ctxt.back.sc_rollup_current_messages
-    in
-    let back = {ctxt.back with sc_rollup_current_messages} in
-    {ctxt with back}
+  let set_current_messages ctxt tree =
+    let sc_rollup_current_messages = Some tree in
+    {ctxt with back = {ctxt.back with sc_rollup_current_messages}}
 end
 
 module Dal = struct

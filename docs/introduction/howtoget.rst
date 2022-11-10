@@ -176,7 +176,7 @@ The node's RPC interface will be available on localhost and can be queried with 
     docker exec node-alpha tezos-client rpc list
 
 Building Docker Images Locally
-------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The docker image used throughout the docker-compose files is fetched from upstream, but you can also
 build one locally and reference it. Run the following commands to build the image:
@@ -194,7 +194,7 @@ And then update the docker-compose file (e.g., ``alpha.yml``) with the docker ta
       ...
 
 Docker Image Configuration
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Lastly, the entrypoint script (:src:`scripts/docker/entrypoint.sh`) provides the following configurable
 environment variables:
@@ -399,7 +399,7 @@ If you plan to contribute to the Tezos codebase, the way to go is to set up a
 complete development environment, by cloning the repository and compiling the
 sources using the provided makefile.
 
-**TL;DR**: From a fresh Debian Buster x86_64, you typically want to select a source branch, e.g.:
+**TL;DR**: From a fresh Debian Buster x86_64, you typically want to select a source branch in the Octez repository, e.g.:
 
 .. literalinclude:: compile-sources.sh
   :language: shell

@@ -37,27 +37,42 @@ val lookup_opt :
   Tezos_webassembly_interpreter.Ast.name ->
   Tezos_webassembly_interpreter.Instance.extern option
 
-(** [register_host_funcs] registers all the PVMs host functions into a WASM
-    interpreter's registry, using the names expected by {!lookup}.
-
-    Currently, the registered functions are:
-    - [read_input]:
-      It has to be invoked with a list
-      of 5 values representing rtype_offset, level_offset, id_offset,
-      dst and max_bytes, otherwise it raises the [Bad_input] exception.
-
-      When invoked, it write the content of an input message into the
-      memory of a [module_inst]. It also checks that the input payload
-      is no larger than the input is not too large. Finally, it returns
-      returns a singleton value list containing the size of the
-      input_buffer payload. *)
-val register_host_funcs :
-  Tezos_webassembly_interpreter.Host_funcs.registry -> unit
+(** [all] represents all registered host functions that are important for the
+    SCORU WASM PVM. *)
+val all : Tezos_webassembly_interpreter.Host_funcs.registry
 
 exception Bad_input
 
 (** A durable key was given by the kernel with a longer-than-allowed length. *)
 exception Key_too_large of int
+
+module Error : sig
+  type t =
+    | Store_key_too_large
+        (** The store key submitted as an argument of a host function exceeds
+            the authorized limit. Has code `-1`. *)
+    | Store_invalid_key
+        (** The store key submitted as an argument of a host function cannot be
+            parsed. Has code `-2`. *)
+    | Store_not_a_value
+        (** The contents (if any) of the store under the key submitted as an
+            argument of a host function is not a value. Has code `-3`. *)
+    | Store_invalid_access
+        (** An access in a value of the durable storage has failed, supposedly
+            out of bounds of a value. Has code `-4`. *)
+    | Store_value_size_exceeded
+        (** Writing a value has exceeded 2^31 bytes. Has code `-5`. *)
+    | Memory_invalid_access
+        (** An address is out of bound of the memory. Has code `-6`. *)
+    | Input_output_too_large
+        (** The input or output submitted as an argument of a host function
+            exceeds the authorized limit. Has code `-7`. *)
+    | Generic_invalid_access
+        (** Generic error code for unexpected errors. Has code `-8`. *)
+
+  (** [code error] returns the error code associated to the error. *)
+  val code : t -> int32
+end
 
 module Aux : sig
   (** [aux_write_output ~input_buffer ~output_buffer ~module_inst ~src
@@ -72,24 +87,23 @@ module Aux : sig
     num_bytes:int32 ->
     int32 Lwt.t
 
-  (** [aux_write_memory ~input_buffer ~module_inst ~rtype_offset
-       ~level_offset ~id_offset ~dst ~max_bytes] reads `input_buffer`
-       and writes its components to the memory of `module_inst` based
-       on the memory addreses offsets described. It also checks that
-       the input payload is no larger than `max_input` and crashes
-       with `input too large` otherwise. It returns the size of the
-       payload. Note also that, if the level increases this function also
-      updates the level of the output buffer and resets its id to zero.*)
+  (** [aux_write_memory ~input_buffer ~module_inst ~level_offset
+       ~id_offset ~dst ~max_bytes] reads `input_buffer` and writes its
+       components to the memory of `module_inst` based on the memory
+       addreses offsets described. It also checks that the input
+       payload is no larger than `max_input` and crashes with `input
+       too large` otherwise. It returns the size of the payload. Note
+       also that, if the level increases this function also updates
+       the level of the output buffer and resets its id to zero. *)
   val read_input :
     input_buffer:Tezos_webassembly_interpreter.Input_buffer.t ->
     output_buffer:Tezos_webassembly_interpreter.Output_buffer.t ->
     memory:Tezos_webassembly_interpreter.Instance.memory_inst ->
-    rtype_offset:int32 ->
     level_offset:int32 ->
     id_offset:int32 ->
     dst:int32 ->
     max_bytes:int32 ->
-    int Lwt.t
+    int32 Lwt.t
 
   val store_has :
     durable:Durable.t ->
@@ -103,7 +117,7 @@ module Aux : sig
     memory:Tezos_webassembly_interpreter.Instance.memory_inst ->
     key_offset:int32 ->
     key_length:int32 ->
-    Durable.t Lwt.t
+    (Durable.t * int32) Lwt.t
 
   val store_copy :
     durable:Durable.t ->
@@ -112,7 +126,7 @@ module Aux : sig
     from_key_length:int32 ->
     to_key_offset:int32 ->
     to_key_length:int32 ->
-    Durable.t Lwt.t
+    (Durable.t * int32) Lwt.t
 
   val store_move :
     durable:Durable.t ->
@@ -121,7 +135,14 @@ module Aux : sig
     from_key_length:int32 ->
     to_key_offset:int32 ->
     to_key_length:int32 ->
-    Durable.t Lwt.t
+    (Durable.t * int32) Lwt.t
+
+  val store_value_size :
+    durable:Durable.t ->
+    memory:Tezos_webassembly_interpreter.Instance.memory_inst ->
+    key_offset:int32 ->
+    key_length:int32 ->
+    int32 Lwt.t
 
   val store_read :
     durable:Durable.t ->
@@ -162,6 +183,9 @@ module Aux : sig
 end
 
 module Internal_for_tests : sig
+  (** The number of bytes used to store the metadata of a rollup in memory *)
+  val metadata_size : int
+
   val write_output : Tezos_webassembly_interpreter.Instance.func_inst
 
   val read_input : Tezos_webassembly_interpreter.Instance.func_inst
@@ -180,6 +204,8 @@ module Internal_for_tests : sig
   val store_copy : Tezos_webassembly_interpreter.Instance.func_inst
 
   val store_move : Tezos_webassembly_interpreter.Instance.func_inst
+
+  val store_value_size : Tezos_webassembly_interpreter.Instance.func_inst
 
   val store_read : Tezos_webassembly_interpreter.Instance.func_inst
 

@@ -38,13 +38,14 @@ type output_info = {
   message_index : Z.t;  (** The index of the message in the outbox. *)
 }
 
-type input_hash = Tezos_webassembly_interpreter.Reveal.input_hash
+type reveal_hash = Tezos_webassembly_interpreter.Reveal.reveal_hash
 
-let input_hash_to_string =
-  Tezos_webassembly_interpreter.Reveal.input_hash_to_string
+let reveal_hash_to_string =
+  Tezos_webassembly_interpreter.Reveal.reveal_hash_to_string
 
 type reveal = Tezos_webassembly_interpreter.Reveal.reveal =
-  | Reveal_raw_data of Tezos_webassembly_interpreter.Reveal.input_hash
+  | Reveal_raw_data of Tezos_webassembly_interpreter.Reveal.reveal_hash
+  | Reveal_metadata
 
 (** Represents the state of input requests. *)
 type input_request =
@@ -98,4 +99,6 @@ module Internal_state = struct
     maximum_reboots_per_input : Z.t;
         (** Number of reboots between two inputs. *)
   }
+
+  type computation_status = Starting | Restarting | Running | Failing | Reboot
 end

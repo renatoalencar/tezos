@@ -192,11 +192,11 @@ module Scripts = struct
 
     let trace_code_input_encoding = run_code_input_encoding
 
-    let trace_encoding =
+    let trace_encoding : Script_typed_ir.execution_trace encoding =
       def "scripted.trace" @@ list
       @@ obj3
            (req "location" Script.location_encoding)
-           (req "gas" Gas.encoding)
+           (req "gas" Gas.Arith.z_fp_encoding)
            (req "stack" (list Script.expr_encoding))
 
     let trace_code_output_encoding =
@@ -498,7 +498,7 @@ module Scripts = struct
       in
       unparse_stack (stack_ty, stack)
 
-    let trace_logger () : Script_typed_ir.logger =
+    let trace_logger ctxt : Script_typed_ir.logger =
       let log : log_element list ref = ref [] in
       let log_interp _ ctxt loc sty stack =
         log := Log (ctxt, loc, stack, sty) :: !log
@@ -509,19 +509,21 @@ module Scripts = struct
       in
       let log_control _ = () in
       let get_log () =
-        List.map_es
-          (fun (Log (ctxt, loc, stack, stack_ty)) ->
+        List.fold_left_es
+          (fun (old_ctxt, l) (Log (ctxt, loc, stack, stack_ty)) ->
+            let consumed_gas = Gas.consumed ~since:old_ctxt ~until:ctxt in
             trace
               Plugin_errors.Cannot_serialize_log
               (unparse_stack ctxt (stack, stack_ty))
-            >>=? fun stack -> return (loc, Gas.level ctxt, stack))
-          !log
-        >>=? fun res -> return (Some (List.rev res))
+            >>=? fun stack -> return (ctxt, (loc, consumed_gas, stack) :: l))
+          (ctxt, [])
+          (List.rev !log)
+        >>=? fun (_ctxt, res) -> return (Some (List.rev res))
       in
       {log_exit; log_entry; log_interp; get_log; log_control}
 
     let execute ctxt step_constants ~script ~entrypoint ~parameter =
-      let logger = trace_logger () in
+      let logger = trace_logger ctxt in
       Script_interpreter.execute
         ~logger
         ~cached_script:None
@@ -1696,6 +1698,17 @@ module Contract = struct
         ~query:RPC_query.empty
         ~output:(option z)
         RPC_path.(path /: Contract.rpc_arg / "storage" / "paid_space")
+
+    let ticket_balance =
+      let open Data_encoding in
+      RPC_service.post_service
+        ~description:
+          "Access the contract's balance of ticket with specified ticketer, \
+           content type, and content."
+        ~query:RPC_query.empty
+        ~input:Ticket_token.unparsed_token_encoding
+        ~output:n
+        RPC_path.(path /: Contract.rpc_arg / "ticket_balance")
   end
 
   let get_contract contract f =
@@ -1754,7 +1767,22 @@ module Contract = struct
       S.get_paid_storage_space
       (fun ctxt contract () () ->
         get_contract contract @@ fun _ ->
-        Contract.paid_storage_space ctxt contract >>=? return_some)
+        Contract.paid_storage_space ctxt contract >>=? return_some) ;
+    Registration.register1
+      ~chunked:false
+      S.ticket_balance
+      (fun ctxt contract () Ticket_token.{ticketer; contents_type; contents} ->
+        let open Lwt_result_syntax in
+        let* ticket_hash, ctxt =
+          Ticket_balance_key.make
+            ctxt
+            ~owner:(Contract contract)
+            ~ticketer
+            ~contents_type:(Micheline.root contents_type)
+            ~contents:(Micheline.root contents)
+        in
+        let* amount, _ctxt = Ticket_balance.get_balance ctxt ticket_hash in
+        return @@ Option.value amount ~default:Z.zero)
 
   let get_storage_normalized ctxt block ~contract ~unparsing_mode =
     RPC_context.make_call1
@@ -1792,6 +1820,9 @@ module Contract = struct
       (Contract.Originated contract)
       ()
       ()
+
+  let ticket_balance ctxt block contract key =
+    RPC_context.make_call1 S.ticket_balance ctxt block contract () key
 end
 
 module Big_map = struct
@@ -1879,13 +1910,6 @@ module Sc_rollup = struct
         ~output:Data_encoding.string
         RPC_path.(path /: Sc_rollup.Address.rpc_arg / "boot_sector")
 
-    let inbox =
-      RPC_service.get_service
-        ~description:"Inbox for a smart-contract rollup"
-        ~query:RPC_query.empty
-        ~output:Sc_rollup.Inbox.encoding
-        RPC_path.(path /: Sc_rollup.Address.rpc_arg / "inbox")
-
     let genesis_info =
       RPC_service.get_service
         ~description:
@@ -1939,13 +1963,6 @@ module Sc_rollup = struct
         RPC_path.(
           path /: Sc_rollup.Address.rpc_arg / "dal_slot_subscriptions"
           /: Raw_level.rpc_arg)
-
-    let root =
-      RPC_service.get_service
-        ~description:"List of all originated smart contract rollups"
-        ~query:RPC_query.empty
-        ~output:(Data_encoding.list Sc_rollup.Address.encoding)
-        path
 
     let ongoing_refutation_game =
       let query =
@@ -2039,15 +2056,31 @@ module Sc_rollup = struct
         ~query
         ~output
         RPC_path.(path /: Sc_rollup.Address.rpc_arg / "can_be_cemented")
+
+    let path_sc_rollups : RPC_context.t RPC_path.context =
+      RPC_path.(open_root / "context" / "sc_rollups")
+
+    let root =
+      RPC_service.get_service
+        ~description:"List of all originated smart contract rollups"
+        ~query:RPC_query.empty
+        ~output:(Data_encoding.list Sc_rollup.Address.encoding)
+        path_sc_rollups
+
+    let inbox =
+      RPC_service.get_service
+        ~description:"Inbox for the smart contract rollups"
+        ~query:RPC_query.empty
+        ~output:Sc_rollup.Inbox.encoding
+        RPC_path.(path_sc_rollups / "inbox")
   end
 
   let kind ctxt block sc_rollup_address =
     RPC_context.make_call1 S.kind ctxt block sc_rollup_address ()
 
   let register_inbox () =
-    Registration.register1 ~chunked:true S.inbox (fun ctxt rollup () () ->
-        Sc_rollup.Inbox.inbox ctxt rollup >>=? fun (inbox, _ctxt) ->
-        return inbox)
+    Registration.register0 ~chunked:true S.inbox (fun ctxt () () ->
+        Sc_rollup.Inbox.get_inbox ctxt >>=? fun (inbox, _ctxt) -> return inbox)
 
   let register_kind () =
     Registration.opt_register1 ~chunked:true S.kind @@ fun ctxt address () () ->
@@ -2210,8 +2243,7 @@ module Sc_rollup = struct
 
   let list ctxt block = RPC_context.make_call0 S.root ctxt block () ()
 
-  let inbox ctxt block sc_rollup_address =
-    RPC_context.make_call1 S.inbox ctxt block sc_rollup_address () ()
+  let inbox ctxt block = RPC_context.make_call0 S.inbox ctxt block () ()
 
   let genesis_info ctxt block sc_rollup_address =
     RPC_context.make_call1 S.genesis_info ctxt block sc_rollup_address () ()
@@ -2771,7 +2803,6 @@ let estimated_time round_durations ~current_level ~current_round
     ~current_timestamp ~level ~round =
   if Level.(level <= current_level) then Result.return_none
   else
-    Round.of_int round >>? fun round ->
     Round.timestamp_of_round
       round_durations
       ~round
@@ -2805,7 +2836,7 @@ module Baking_rights = struct
     level : Raw_level.t;
     delegate : public_key_hash;
     consensus_key : public_key_hash;
-    round : int;
+    round : Round.t;
     timestamp : Timestamp.t option;
   }
 
@@ -2819,7 +2850,7 @@ module Baking_rights = struct
       (obj5
          (req "level" Raw_level.encoding)
          (req "delegate" Signature.Public_key_hash.encoding)
-         (req "round" uint16)
+         (req "round" Round.encoding)
          (opt "estimated_time" Timestamp.encoding)
          (req "consensus_key" Signature.Public_key_hash.encoding))
 
@@ -2883,15 +2914,20 @@ module Baking_rights = struct
   end
 
   let baking_rights_at_level ctxt max_round level =
-    Baking.baking_rights ctxt level >>=? fun delegates ->
     Round.get ctxt >>=? fun current_round ->
     let current_level = Level.current ctxt in
     let current_timestamp = Timestamp.current ctxt in
     let round_durations = Alpha_context.Constants.round_durations ctxt in
-    let rec loop l acc round =
-      if Compare.Int.(round > max_round) then return (List.rev acc)
+    let rec loop ctxt acc round =
+      if Round.(round > max_round) then
+        (* returns the ctxt with an updated cache of slot holders *)
+        return (ctxt, List.rev acc)
       else
-        let (Misc.LCons ({Consensus_key.consensus_pkh; delegate}, next)) = l in
+        Stake_distribution.baking_rights_owner ctxt level ~round
+        >>=? fun ( ctxt,
+                   _slot,
+                   {Consensus_key.consensus_pkh; delegate; consensus_pk = _} )
+          ->
         estimated_time
           round_durations
           ~current_level
@@ -2910,9 +2946,9 @@ module Baking_rights = struct
           }
           :: acc
         in
-        next () >>=? fun l -> loop l acc (round + 1)
+        loop ctxt acc (Round.succ round)
     in
-    loop delegates [] 0
+    loop ctxt [] Round.zero
 
   let remove_duplicated_delegates rights =
     List.rev @@ fst
@@ -2937,16 +2973,19 @@ module Baking_rights = struct
             cycles
             q.levels
         in
-        let max_round =
-          match q.max_round with
+        Round.of_int
+          (match q.max_round with
           | None -> default_max_round
           | Some max_round ->
               Compare.Int.min
                 max_round
-                (Constants.consensus_committee_size ctxt)
-        in
-        List.map_es (baking_rights_at_level ctxt max_round) levels
-        >|=? fun rights ->
+                (Constants.consensus_committee_size ctxt))
+        >>?= fun max_round ->
+        List.fold_left_map_es
+          (fun ctxt l -> baking_rights_at_level ctxt max_round l)
+          ctxt
+          levels
+        >|=? fun (_ctxt, rights) ->
         let rights =
           if q.all then List.concat rights
           else List.concat_map remove_duplicated_delegates rights
@@ -3083,7 +3122,7 @@ module Endorsing_rights = struct
       ~current_round
       ~current_timestamp
       ~level
-      ~round:0
+      ~round:Round.zero
     >>?= fun estimated_time ->
     let rights =
       Slot.Map.fold
@@ -3099,7 +3138,9 @@ module Endorsing_rights = struct
         rights
         []
     in
-    return {level = level.level; delegates_rights = rights; estimated_time}
+    (* returns the ctxt with an updated cache of slot holders *)
+    return
+      (ctxt, {level = level.level; delegates_rights = rights; estimated_time})
 
   let register () =
     Registration.register0 ~chunked:true S.endorsing_rights (fun ctxt q () ->
@@ -3111,8 +3152,8 @@ module Endorsing_rights = struct
             cycles
             q.levels
         in
-        List.map_es (endorsing_rights_at_level ctxt) levels
-        >|=? fun rights_per_level ->
+        List.fold_left_map_es endorsing_rights_at_level ctxt levels
+        >|=? fun (_ctxt, rights_per_level) ->
         let rights_per_level =
           match q.consensus_keys with
           | [] -> rights_per_level
@@ -3203,21 +3244,25 @@ module Validators = struct
         path
   end
 
-  let endorsing_slots_at_level ctxt level =
-    Baking.endorsing_rights ctxt level >|=? fun (_, rights) ->
-    Signature.Public_key_hash.Map.fold
-      (fun _pkh {Baking.delegate; consensus_key; slots} acc ->
-        {level = level.level; delegate; consensus_key; slots} :: acc)
-      rights
-      []
+  let add_endorsing_slots_at_level (ctxt, acc) level =
+    Baking.endorsing_rights ctxt level >|=? fun (ctxt, rights) ->
+    ( ctxt,
+      Signature.Public_key_hash.Map.fold
+        (fun _pkh {Baking.delegate; consensus_key; slots} acc ->
+          {level = level.level; delegate; consensus_key; slots} :: acc)
+        rights
+        acc )
 
   let register () =
     Registration.register0 ~chunked:true S.validators (fun ctxt q () ->
         let levels =
           requested_levels ~default_level:(Level.current ctxt) ctxt [] q.levels
         in
-        List.concat_map_es (endorsing_slots_at_level ctxt) levels
-        >|=? fun rights ->
+        List.fold_left_es
+          add_endorsing_slots_at_level
+          (ctxt, [])
+          (List.rev levels)
+        >|=? fun (_ctxt, rights) ->
         let rights =
           match q.delegates with
           | [] -> rights

@@ -141,7 +141,7 @@ val genesis :
   ?zk_rollup_enable:bool ->
   ?hard_gas_limit_per_block:Gas.Arith.integral ->
   ?nonce_revelation_threshold:int32 ->
-  (Account.t * Tez.tez * Signature.Public_key_hash.t option) list ->
+  Parameters.bootstrap_account list ->
   block tzresult Lwt.t
 
 val genesis_with_parameters : Parameters.t -> block tzresult Lwt.t
@@ -153,7 +153,7 @@ val genesis_with_parameters : Parameters.t -> block tzresult Lwt.t
 val alpha_context :
   ?commitments:Commitment.t list ->
   ?min_proposal_quorum:int32 ->
-  (Account.t * Tez.tez * Signature.Public_key_hash.t option) list ->
+  Parameters.bootstrap_account list ->
   Alpha_context.t tzresult Lwt.t
 
 (**
@@ -185,22 +185,27 @@ val get_construction_vstate :
 val apply :
   Block_header.block_header ->
   ?operations:Operation.packed list ->
+  ?allow_manager_failures:bool ->
   t ->
   t tzresult Lwt.t
 
-(**
-   [bake b] returns a block [b'] which has as predecessor block [b].
-   Optional parameter [policy] allows to pick the next baker in
-   several ways. If [check_size] is [true] (the default case), then
-   the function checks that the operations passed as arguments satisfy
-   the size limit of Tezos operations, as defined in the protocol.
-   This function bundles together [forge_header], [sign_header] and [apply].
-   These functions should be used instead of bake to craft unusual blocks for
-   testing together with setters for properties of the headers.
-   For examples see seed.ml or double_baking.ml
+(** [bake b] returns a block [b'] which has as predecessor block [b].
+    Optional parameter [policy] allows to pick the next baker in
+    several ways. If [check_size] is [true] (the default case), then
+    the function checks that the operations passed as arguments satisfy
+    the size limit of Tezos operations, as defined in the protocol.
+    This function bundles together [forge_header], [sign_header] and
+    [apply].  These functions should be used instead of bake to craft
+    unusual blocks for testing together with setters for properties of
+    the headers.  Setting [allow_manager_failures] (default=false),
+    allows baking blocks with manager operation(s) that are valid but
+    that could fail during their application. If this is not set, the
+    block is correctly baked but the operations' application will fail
+    silently.  For examples see seed.ml or double_baking.ml
 *)
 val bake :
   ?baking_mode:baking_mode ->
+  ?allow_manager_failures:bool ->
   ?payload_round:Round.t option ->
   ?locked_round:Alpha_context.Round.t option ->
   ?policy:baker_policy ->
@@ -289,7 +294,7 @@ val prepare_initial_context_params :
   ?zk_rollup_enable:bool ->
   ?hard_gas_limit_per_block:Gas.Arith.integral ->
   ?nonce_revelation_threshold:int32 ->
-  (Account.t * Tez.t * Signature.Public_key_hash.t option) list ->
+  unit ->
   ( Constants.Parametric.t * Block_header.shell_header * Block_hash.t,
     tztrace )
   result

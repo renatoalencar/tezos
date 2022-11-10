@@ -311,9 +311,11 @@ let resto_cohttp_server = external_lib "resto-cohttp-server" resto_version
 let resto_directory =
   external_lib ~js_compatible:true "resto-directory" resto_version
 
-let ringo = external_lib ~js_compatible:true "ringo" V.(at_least "0.9")
+let ringo = external_lib ~js_compatible:true "ringo" V.(at_least "1.0.0")
 
-let ringo_lwt = external_lib "ringo-lwt" V.(at_least "0.9")
+let aches = external_lib ~js_compatible:true "aches" V.(at_least "1.0.0")
+
+let aches_lwt = external_lib "aches-lwt" V.(at_least "1.0.0")
 
 let secp256k1_internal =
   let version = V.(at_least "0.3.0") in
@@ -410,7 +412,7 @@ let octez_stdlib =
     "tezos-stdlib"
     ~path:"src/lib_stdlib"
     ~synopsis:"Tezos: yet-another local-extension of the OCaml standard library"
-    ~deps:[hex; zarith; zarith_stubs_js; lwt; ringo]
+    ~deps:[hex; zarith; zarith_stubs_js; lwt; aches]
     ~ocaml:V.(at_least "4.12")
     ~js_compatible:true
     ~inline_tests:ppx_expect
@@ -784,7 +786,7 @@ let octez_crypto =
         secp256k1_internal;
         octez_error_monad |> open_ |> open_ ~m:"TzLwtreslib";
         octez_rpc |> open_;
-        ringo;
+        aches;
         zarith;
         zarith_stubs_js;
         bls12_381;
@@ -1288,7 +1290,6 @@ let octez_workers =
       [
         octez_base |> open_ ~m:"TzPervasives" |> open_;
         octez_stdlib_unix |> open_;
-        ringo;
       ]
 
 let _octez_workers_tests =
@@ -1416,6 +1417,7 @@ let octez_p2p =
         lwt_watcher;
         lwt_canceler;
         ringo;
+        aches;
         octez_base |> open_ ~m:"TzPervasives";
         octez_base_unix |> open_;
         octez_stdlib_unix |> open_;
@@ -1904,8 +1906,8 @@ protocols.|}
         plonk;
         octez_crypto_dal;
         vdf;
-        ringo;
-        ringo_lwt;
+        aches;
+        aches_lwt;
         octez_base |> open_ ~m:"TzPervasives";
         octez_sapling;
         tezos_protocol_environment_sigs;
@@ -2151,7 +2153,8 @@ let octez_store_shared =
       [
         octez_base |> open_ |> open_ ~m:"TzPervasives";
         octez_shell_services |> open_;
-        ringo_lwt;
+        aches;
+        aches_lwt;
         octez_validation |> open_;
       ]
     ~modules:
@@ -2185,7 +2188,8 @@ let octez_store_unix =
         octez_stdlib_unix |> open_;
         octez_stdlib |> open_;
         lwt_watcher;
-        ringo_lwt;
+        aches;
+        aches_lwt;
         camlzip;
         tar;
         tar_unix;
@@ -2719,7 +2723,8 @@ let octez_proxy =
     ~synopsis:"Tezos: proxy"
     ~deps:
       [
-        ringo_lwt;
+        aches;
+        aches_lwt;
         octez_base |> open_ ~m:"TzPervasives";
         octez_clic;
         octez_client_base;
@@ -2892,6 +2897,7 @@ let octez_benchmark =
         ocaml_migrate_parsetree;
         opam_only "hashcons" V.True;
       ]
+    ~inline_tests:ppx_expect
 
 let octez_benchmark_examples =
   public_lib
@@ -3142,6 +3148,28 @@ let octez_dal_node_lib =
         octez_protocol_updater |> open_;
       ]
 
+let octez_scoru_wasm_tests_helpers =
+  private_lib
+    "test_scoru_wasm_test_helpers"
+    ~path:"src/lib_scoru_wasm/test/helpers"
+    ~opam:"tezos-scoru-wasm-test-helpers"
+    ~synopsis:"helpers for testing for the scoru-wasm functionality"
+    ~deps:
+      [
+        octez_base |> open_ ~m:"TzPervasives";
+        tree_encoding;
+        octez_base_unix;
+        octez_context_disk;
+        octez_base_test_helpers |> open_;
+        octez_test_helpers;
+        octez_scoru_wasm;
+        qcheck_alcotest;
+        alcotest_lwt;
+        tezt_lib;
+        octez_webassembly_interpreter_extra |> open_;
+      ]
+    ~preprocess:[staged_pps [ppx_import; ppx_deriving_show]]
+
 let _octez_scoru_wasm_tests =
   test
     "test_scoru_wasm"
@@ -3160,6 +3188,7 @@ let _octez_scoru_wasm_tests =
         qcheck_alcotest;
         alcotest_lwt;
         tezt_lib;
+        octez_scoru_wasm_tests_helpers |> open_;
         octez_webassembly_interpreter_extra |> open_;
       ]
     ~preprocess:[staged_pps [ppx_import; ppx_deriving_show]]
@@ -3536,8 +3565,8 @@ end = struct
       in
       let _integration_validate =
         only_if N.(number >= 014) @@ fun () ->
-        tests
-          ["main"; "test_1m_restriction"]
+        test
+          "main"
           ~path:(path // "lib_protocol/test/integration/validate")
           ~opam:(sf "tezos-protocol-%s-tests" name_dash)
           ~deps:
@@ -3550,6 +3579,7 @@ end = struct
               client |> if_some |> open_;
               test_helpers |> if_some |> open_;
               octez_base_test_helpers |> open_;
+              plugin |> if_some |> open_;
             ]
       in
       let _integration =
@@ -3595,6 +3625,7 @@ end = struct
             (3, "test_carbonated_map", N.(number >= 013));
             (3, "test_zk_rollup_encoding", N.(number >= 015));
             (3, "test_dal_slot_proof", N.(number >= 016));
+            (3, "test_compare_operations", N.(number >= 015));
           ]
           |> List.filter_map (fun (i, n, b) -> if b then Some (i, n) else None)
         in
@@ -3660,8 +3691,13 @@ end = struct
               main |> open_;
               test_helpers |> if_some |> open_;
               alcotest_lwt;
+              octez_scoru_wasm_tests_helpers |> if_ N.(number >= 016) |> open_;
               octez_stdlib |> if_ N.(number >= 013) |> open_;
               octez_crypto_dal |> if_ N.(number >= 016) |> open_;
+              octez_scoru_wasm;
+              octez_webassembly_interpreter_extra
+              |> if_ N.(number >= 016)
+              |> open_;
             ]
           ~dune:
             Dune.
@@ -4660,8 +4696,8 @@ module Protocol = Protocol
             irmin_pack;
             irmin_pack_unix;
             irmin;
-            ringo;
-            ringo_lwt;
+            aches;
+            aches_lwt;
             injector |> if_some |> open_;
             octez_scoru_wasm;
           ]

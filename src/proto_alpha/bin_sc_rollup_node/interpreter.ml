@@ -59,13 +59,14 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
     let origination_level = node_ctxt.genesis_info.Sc_rollup.Commitment.level in
     Sc_rollup.Metadata.{address; origination_level}
 
-  let consume_fuel = Option.map pred
+  let consume_fuel consumption =
+    Option.map (fun fuel -> Int64.sub fuel consumption)
 
-  let continue_with_fuel fuel state f =
+  let continue_with_fuel consumption fuel state f =
     let open Lwt_result_syntax in
     match fuel with
-    | Some 0 -> return (state, fuel)
-    | _ -> f (consume_fuel fuel) state
+    | Some 0L -> return (state, fuel)
+    | _ -> f (consume_fuel consumption fuel) state
 
   (** [eval_until_input ~metadata level message_index ~fuel start_tick
       failing_ticks state] advances a PVM [state] until it wants more
@@ -77,10 +78,13 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
   let eval_until_input ~metadata data_dir level message_index ~fuel start_tick
       failing_ticks state =
     let open Lwt_result_syntax in
-    let eval_tick tick failing_ticks state =
+    let eval_tick fuel_left tick failing_ticks state =
+      let max_steps =
+        match fuel_left with None -> Int64.max_int | Some v -> Int64.max 0L v
+      in
       let normal_eval state =
-        let*! state = PVM.eval state in
-        return (state, failing_ticks)
+        let*! state, executed_ticks = PVM.eval_many ~max_steps state in
+        return (state, executed_ticks, failing_ticks)
       in
       let failure_insertion_eval state failing_ticks' =
         let*! () =
@@ -91,24 +95,28 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
             ~internal:true
         in
         let*! state = PVM.Internal_for_tests.insert_failure state in
-        return (state, failing_ticks')
+        return (state, 1L, failing_ticks')
       in
       match failing_ticks with
       | xtick :: failing_ticks' when xtick = tick ->
           failure_insertion_eval state failing_ticks'
       | _ -> normal_eval state
     in
-    let rec go fuel tick failing_ticks state =
+    let rec go fuel_left current_tick failing_ticks state =
       let*! input_request = PVM.is_input_state state in
-      match fuel with
-      | Some 0 -> return (state, fuel, tick, failing_ticks)
+      match fuel_left with
+      | Some 0L -> return (state, fuel_left, current_tick, failing_ticks)
       | None | Some _ -> (
           match input_request with
           | No_input_required ->
-              let* next_state, failing_ticks =
-                eval_tick tick failing_ticks state
+              let* next_state, executed_ticks, failing_ticks =
+                eval_tick fuel_left current_tick failing_ticks state
               in
-              go (consume_fuel fuel) (tick + 1) failing_ticks next_state
+              go
+                (consume_fuel executed_ticks fuel_left)
+                (Int64.add current_tick executed_ticks)
+                failing_ticks
+                next_state
           | Needs_reveal (Reveal_raw_data hash) -> (
               match Reveals.get ~data_dir ~pvm_name:PVM.name ~hash with
               | None ->
@@ -117,13 +125,21 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
                   let*! next_state =
                     PVM.set_input (Reveal (Raw_data data)) state
                   in
-                  go (consume_fuel fuel) (tick + 1) failing_ticks next_state)
+                  go
+                    (consume_fuel 1L fuel_left)
+                    (Int64.succ current_tick)
+                    failing_ticks
+                    next_state)
           | Needs_reveal Reveal_metadata ->
               let*! next_state =
                 PVM.set_input (Reveal (Metadata metadata)) state
               in
-              go (consume_fuel fuel) (tick + 1) failing_ticks next_state
-          | _ -> return (state, fuel, tick, failing_ticks))
+              go
+                (consume_fuel 1L fuel_left)
+                (Int64.succ current_tick)
+                failing_ticks
+                next_state
+          | _ -> return (state, fuel_left, current_tick, failing_ticks))
     in
     go fuel start_tick failing_ticks state
 
@@ -148,11 +164,11 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
         level
         message_index
         ~fuel
-        0
+        0L
         failing_ticks
         state
     in
-    continue_with_fuel fuel state @@ fun fuel state ->
+    continue_with_fuel tick fuel state @@ fun fuel state ->
     let* input, failing_ticks =
       match failing_ticks with
       | xtick :: failing_ticks' ->
@@ -182,14 +198,15 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
     in
     return (state, fuel)
 
-  let eval_block_inbox ~metadata data_dir ?fuel failures store hash state =
+  let eval_block_inbox ~metadata ?fuel
+      Node_context.{data_dir; store; loser_mode; _} hash state =
     let open Lwt_result_syntax in
     (* Obtain inbox and its messages for this block. *)
     let*! inbox = Store.Inboxes.find store hash in
     match inbox with
     | None ->
         (* A level with no messages for use. Skip it. *)
-        let*! level = Layer1.level_of_hash store hash in
+        let* level = State.level_of_hash store hash in
         return (state, Z.zero, Raw_level.of_int32_exn level, fuel)
     | Some inbox ->
         let inbox_level = Inbox.inbox_level inbox in
@@ -215,9 +232,10 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
                   }
               in
               let level = Raw_level.to_int32 inbox_level |> Int32.to_int in
+
               let failing_ticks =
                 Loser_mode.is_failure
-                  failures
+                  loser_mode
                   ~level
                   ~message_index:message_counter
               in
@@ -252,39 +270,28 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
     let*! ctxt = PVM.State.set ctxt genesis_state in
     return (ctxt, genesis_state)
 
-  let state_of_hash node_ctxt ctxt hash level =
+  let state_of_head node_ctxt ctxt Layer1.{hash; level} =
     let open Lwt_result_syntax in
-    if Raw_level.(level = node_ctxt.Node_context.genesis_info.level) then
-      genesis_state hash node_ctxt ctxt
+    let genesis_level =
+      Raw_level.to_int32 node_ctxt.Node_context.genesis_info.level
+    in
+    if level = genesis_level then genesis_state hash node_ctxt ctxt
     else
       let*! state = PVM.State.find ctxt in
       match state with
       | None -> tzfail (Sc_rollup_node_errors.Missing_PVM_state (hash, level))
       | Some state -> return (ctxt, state)
 
-  (** [transition_pvm node_ctxt predecessor_hash head] runs a PVM at the
-      previous state from block [predecessor_hash] by consuming as many messages
+  (** [transition_pvm node_ctxt predecessor head] runs a PVM at the
+      previous state from block [predecessor] by consuming as many messages
       as possible from block [head]. *)
-  let transition_pvm node_ctxt ctxt predecessor_hash (Layer1.Head {hash; level})
-      =
+  let transition_pvm node_ctxt ctxt predecessor Layer1.{hash; _} =
     let open Lwt_result_syntax in
-    let data_dir = node_ctxt.Node_context.data_dir in
     (* Retrieve the previous PVM state from store. *)
-    let pred_level = Int32.pred level |> Raw_level.of_int32_exn in
-    let* ctxt, predecessor_state =
-      if Raw_level.(pred_level <= node_ctxt.Node_context.genesis_info.level)
-      then genesis_state hash node_ctxt ctxt
-      else state_of_hash node_ctxt ctxt predecessor_hash pred_level
-    in
+    let* ctxt, predecessor_state = state_of_head node_ctxt ctxt predecessor in
     let metadata = metadata node_ctxt in
     let* state, num_messages, inbox_level, _fuel =
-      eval_block_inbox
-        ~metadata
-        data_dir
-        node_ctxt.loser_mode
-        node_ctxt.store
-        hash
-        predecessor_state
+      eval_block_inbox ~metadata node_ctxt hash predecessor_state
     in
 
     (* Write final state to store. *)
@@ -297,6 +304,7 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
 
     let*! () =
       let open Store.StateHistoryRepr in
+      let Layer1.{hash = predecessor_hash; _} = predecessor in
       let event =
         {
           tick = initial_tick;
@@ -329,34 +337,52 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
     return_unit
 
   (** [process_head node_ctxt head] runs the PVM for the given head. *)
-  let process_head node_ctxt ctxt head =
+  let process_head (node_ctxt : Node_context.t) ctxt head =
     let open Lwt_result_syntax in
-    let*! predecessor_hash =
-      Layer1.predecessor node_ctxt.Node_context.store head
+    let first_inbox_level =
+      Raw_level.to_int32 node_ctxt.genesis_info.level |> Int32.succ
     in
-    transition_pvm node_ctxt ctxt predecessor_hash head
+    if head.Layer1.level >= first_inbox_level then
+      let* predecessor =
+        Layer1.get_predecessor node_ctxt.Node_context.l1_ctxt head
+      in
+      transition_pvm node_ctxt ctxt predecessor head
+    else if head.Layer1.level = Raw_level.to_int32 node_ctxt.genesis_info.level
+    then
+      let* ctxt, state = genesis_state head.hash node_ctxt ctxt in
+      (* Write final state to store. *)
+      let*! ctxt = PVM.State.set ctxt state in
+      let*! context_hash = Context.commit ctxt in
+      let*! () = Store.Contexts.add node_ctxt.store head.hash context_hash in
+
+      let*! () =
+        Store.StateInfo.add
+          node_ctxt.store
+          head.hash
+          {
+            num_messages = Z.zero;
+            num_ticks = Z.zero;
+            initial_tick = Sc_rollup.Tick.initial;
+          }
+      in
+      return_unit
+    else return_unit
 
   (** [run_for_ticks node_ctxt predecessor_hash hash tick_distance] starts the
       evaluation of the inbox at block [hash] for at most [tick_distance]. *)
   let run_for_ticks node_ctxt predecessor_hash hash level tick_distance =
     let open Lwt_result_syntax in
-    let pred_level =
-      WithExceptions.Option.get ~loc:__LOC__ (Raw_level.pred level)
-    in
+    let pred_level = Raw_level.to_int32 level |> Int32.pred in
     let* ctxt = Node_context.checkout_context node_ctxt predecessor_hash in
     let* _ctxt, state =
-      state_of_hash node_ctxt ctxt predecessor_hash pred_level
+      state_of_head
+        node_ctxt
+        ctxt
+        Layer1.{hash = predecessor_hash; level = pred_level}
     in
     let metadata = metadata node_ctxt in
     let* state, _counter, _level, _fuel =
-      eval_block_inbox
-        ~metadata
-        node_ctxt.data_dir
-        node_ctxt.loser_mode
-        ~fuel:tick_distance
-        node_ctxt.store
-        hash
-        state
+      eval_block_inbox ~metadata ~fuel:tick_distance node_ctxt hash state
     in
     return state
 
@@ -376,7 +402,7 @@ module Make (PVM : Pvm.S) : S with module PVM = PVM = struct
         if Raw_level.(event.level > level) then return None
         else
           let tick_distance =
-            Sc_rollup.Tick.distance tick event.tick |> Z.to_int
+            Sc_rollup.Tick.distance tick event.tick |> Z.to_int64
           in
           (* TODO: #3384
              We assume that [StateHistory] correctly stores enough

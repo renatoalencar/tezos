@@ -1009,27 +1009,6 @@ module Cycle = struct
       end)
       (Tez_repr)
 
-  module Migration_from_Kathmandu = struct
-    let public_key_with_ghost_hash_encoding =
-      Data_encoding.conv
-        fst
-        (fun x -> (x, Signature.Public_key.hash x))
-        Signature.Public_key.encoding
-
-    module Delegate_sampler_state =
-      Indexed_context.Make_map
-        (Ghost)
-        (struct
-          let name = ["delegate_sampler_state"]
-        end)
-        (struct
-          type t =
-            (Signature.Public_key.t * Signature.Public_key_hash.t) Sampler.t
-
-          let encoding = Sampler.encoding public_key_with_ghost_hash_encoding
-        end)
-  end
-
   module Delegate_sampler_state =
     Indexed_context.Make_map
       (Registered)
@@ -1710,21 +1689,44 @@ module Sc_rollup = struct
         let encoding = Sc_rollup_commitment_repr.genesis_info_encoding
       end)
 
-  module Inbox_versioned =
-    Indexed_context.Make_carbonated_map
-      (Registered)
-      (struct
-        let name = ["inbox"]
-      end)
-      (struct
-        type t = Sc_rollup_inbox_repr.versioned
-
-        let encoding = Sc_rollup_inbox_repr.versioned_encoding
-      end)
-
   module Inbox = struct
-    include Inbox_versioned
-    include Make_versioned (Sc_rollup_inbox_repr) (Inbox_versioned)
+    include
+      Make_single_data_storage (Registered) (Raw_context)
+        (struct
+          let name = ["sc_rollup_inbox"]
+        end)
+        (struct
+          type t = Sc_rollup_inbox_repr.versioned
+
+          let encoding = Sc_rollup_inbox_repr.versioned_encoding
+        end)
+
+    type value = Sc_rollup_inbox_repr.t
+
+    let of_versioned = Sc_rollup_inbox_repr.of_versioned
+
+    let to_versioned = Sc_rollup_inbox_repr.to_versioned
+
+    let get ctxt =
+      let open Lwt_tzresult_syntax in
+      let* versioned = get ctxt in
+      return (of_versioned versioned)
+
+    let find ctxt =
+      let open Lwt_tzresult_syntax in
+      let* versioned = find ctxt in
+      return (Option.map of_versioned versioned)
+
+    let init ctxt value = init ctxt (to_versioned value)
+
+    let update ctxt value = update ctxt (to_versioned value)
+
+    let add ctxt value =
+      let versioned = to_versioned value in
+      add ctxt versioned
+
+    let add_or_remove ctxt value =
+      add_or_remove ctxt (Option.map to_versioned value)
   end
 
   module Last_cemented_commitment =
@@ -2083,9 +2085,4 @@ module Zk_rollup = struct
               Zk_rollup_operation_repr.encoding
               (option Ticket_hash_repr.encoding))
       end)
-end
-
-module Migration_from_Kathmandu = struct
-  module Delegate_sampler_state =
-    Cycle.Migration_from_Kathmandu.Delegate_sampler_state
 end

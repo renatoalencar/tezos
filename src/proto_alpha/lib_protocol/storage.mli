@@ -756,10 +756,11 @@ module Sc_rollup : sig
        and type value = Sc_rollup_commitment_repr.genesis_info
        and type t := Raw_context.t
 
+  (* TODO: https://gitlab.com/tezos/tezos/-/issues/3920
+     Use carbonated storage. *)
   module Inbox :
-    Non_iterable_indexed_carbonated_data_storage
-      with type key = Sc_rollup_repr.t
-       and type value = Sc_rollup_inbox_repr.t
+    Single_data_storage
+      with type value = Sc_rollup_inbox_repr.t
        and type t := Raw_context.t
 
   module Last_cemented_commitment :
@@ -946,13 +947,4 @@ module Zk_rollup : sig
       with type t := Raw_context.t * Zk_rollup_repr.t
        and type key = int64
        and type value = Zk_rollup_operation_repr.t * Ticket_hash_repr.t option
-end
-
-module Migration_from_Kathmandu : sig
-  module Delegate_sampler_state :
-    Indexed_data_storage
-      with type key = Cycle_repr.t
-       and type value =
-        (Signature.Public_key.t * Signature.Public_key_hash.t) Sampler.t
-       and type t := Raw_context.t
 end

@@ -24,8 +24,8 @@
 (*                                                                           *)
 (*****************************************************************************)
 
-(** Maximum number of reboots per inputs. *)
-val maximum_reboots_per_input : Z.t
+val durable_buffers_encoding :
+  Tezos_webassembly_interpreter.Eval.buffers Tezos_tree_encoding.t
 
 module Make (T : Tezos_tree_encoding.TREE) :
-  Gather_floppies.S with type tree = T.tree
+  Wasm_pvm_sig.S with type tree = T.tree

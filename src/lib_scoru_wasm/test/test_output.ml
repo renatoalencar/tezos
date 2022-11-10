@@ -46,7 +46,6 @@ let test_aux_write_output () =
     Input_buffer.enqueue
       input_buffer
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 2;
         payload = Bytes.of_string "hello";
@@ -58,7 +57,6 @@ let test_aux_write_output () =
       ~input_buffer
       ~output_buffer
       ~memory
-      ~rtype_offset:0l
       ~level_offset:4l
       ~id_offset:10l
       ~dst:50l
@@ -86,7 +84,6 @@ let test_write_host_fun () =
     Input_buffer.enqueue
       input
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 2;
         payload = Bytes.of_string "hello";
@@ -100,13 +97,8 @@ let test_write_host_fun () =
   in
   let module_inst = {module_inst with memories} in
   let values =
-    Values.
-      [
-        Num (I32 0l); Num (I32 4l); Num (I32 10l); Num (I32 50l); Num (I32 3600l);
-      ]
+    Values.[Num (I32 4l); Num (I32 10l); Num (I32 50l); Num (I32 3600l)]
   in
-  let host_funcs_registry = Tezos_webassembly_interpreter.Host_funcs.empty () in
-  Host_funcs.register_host_funcs host_funcs_registry ;
 
   let module_reg = Instance.ModuleMap.create () in
   let module_key = Instance.Module_key "test" in
@@ -116,7 +108,7 @@ let test_write_host_fun () =
     Eval.invoke
       ~module_reg
       ~caller:module_key
-      host_funcs_registry
+      Host_funcs.all
       ~input
       ~output
       Host_funcs.Internal_for_tests.read_input
@@ -128,7 +120,7 @@ let test_write_host_fun () =
     Eval.invoke
       ~module_reg
       ~caller:module_key
-      host_funcs_registry
+      Host_funcs.all
       ~input
       ~output
       Host_funcs.Internal_for_tests.write_output
@@ -145,14 +137,15 @@ let test_write_host_fun () =
     Eval.invoke
       ~module_reg
       ~caller:module_key
-      host_funcs_registry
+      Host_funcs.all
       ~input
       ~output
       Host_funcs.Internal_for_tests.write_output
       values
   in
   let* level, id = Output_buffer.get_id output in
-  assert (result = Values.[Num (I32 1l)]) ;
+  assert (
+    result = Values.[Num (I32 Host_funcs.Error.(code Input_output_too_large))]) ;
   assert (level = 2l) ;
   assert (id = Z.zero) ;
   Lwt.return @@ Result.return_unit

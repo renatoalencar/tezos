@@ -107,8 +107,8 @@ module type T = sig
         Tezos_base.Bounded.Non_negative_int32.t
        and type Wasm_2_0_0.input = Tezos_scoru_wasm.Wasm_pvm_state.input_info
        and type Wasm_2_0_0.output = Tezos_scoru_wasm.Wasm_pvm_state.output_info
-       and type Wasm_2_0_0.input_hash =
-        Tezos_scoru_wasm.Wasm_pvm_state.input_hash
+       and type Wasm_2_0_0.reveal_hash =
+        Tezos_scoru_wasm.Wasm_pvm_state.reveal_hash
        and type Wasm_2_0_0.reveal = Tezos_scoru_wasm.Wasm_pvm_state.reveal
        and type Wasm_2_0_0.input_request =
         Tezos_scoru_wasm.Wasm_pvm_state.input_request
@@ -1055,13 +1055,14 @@ struct
       message_index : Z.t;
     }
 
-    type input_hash = Tezos_scoru_wasm.Wasm_pvm_state.input_hash
+    type reveal_hash = Tezos_scoru_wasm.Wasm_pvm_state.reveal_hash
 
-    let input_hash_to_string =
-      Tezos_scoru_wasm.Wasm_pvm_state.input_hash_to_string
+    let reveal_hash_to_string =
+      Tezos_scoru_wasm.Wasm_pvm_state.reveal_hash_to_string
 
     type reveal = Tezos_scoru_wasm.Wasm_pvm_state.reveal =
-      | Reveal_raw_data of input_hash
+      | Reveal_raw_data of reveal_hash
+      | Reveal_metadata
 
     type input_request = Tezos_scoru_wasm.Wasm_pvm_state.input_request =
       | No_input_required
@@ -1079,7 +1080,7 @@ struct
     struct
       type Tezos_lazy_containers.Lazy_map.tree += PVM_tree of Tree.tree
 
-      module Wasm = Tezos_scoru_wasm.Wasm_pvm.Make (struct
+      include Tezos_scoru_wasm.Wasm_pvm.Make (struct
         include Tree
 
         let select = function
@@ -1088,17 +1089,6 @@ struct
 
         let wrap t = PVM_tree t
       end)
-
-      let compute_step (tree : Tree.tree) = Wasm.compute_step tree
-
-      let set_input_step input payload (tree : Tree.tree) =
-        Wasm.set_input_step input payload tree
-
-      let reveal_step = Wasm.reveal_step
-
-      let get_output output (tree : Tree.tree) = Wasm.get_output output tree
-
-      let get_info (tree : Tree.tree) = Wasm.get_info tree
     end
   end
 

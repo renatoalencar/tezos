@@ -63,11 +63,11 @@ let mk_tx_rollup ?(nonce = nonce_zero) () =
 (** Creates a context with a single account. Returns the context and the public
     key hash of the account. *)
 let create_context () =
-  let accounts = Account.generate_accounts 1 in
-  Block.alpha_context accounts >>=? fun ctxt ->
-  match accounts with
-  | [({pkh; _}, _, _)] -> return (ctxt, pkh)
-  | _ -> (* Exactly one account has been generated. *) assert false
+  let (Parameters.{public_key_hash; _} as bootstrap_account) =
+    Account.(new_account () |> make_bootstrap_account)
+  in
+  Block.alpha_context [bootstrap_account] >|=? fun ctxt ->
+  (ctxt, public_key_hash)
 
 (** Creates a context, a user contract, and a delegate.
     Returns the context, the user contract, the user account, and the
@@ -552,7 +552,7 @@ let test_delegate_freeze_unfreeze_undelegate () =
       ~do_slash:_
     ->
       do_unfreeze ctxt >>=? fun ctxt ->
-      do_undelegate ctxt amount_delegated >>=? fun _ -> return_unit)
+      do_undelegate ctxt amount_delegated >>=? fun (_ : context) -> return_unit)
 
 let test_delegate_freeze_undelegate_unfreeze () =
   test_scenario
@@ -568,7 +568,7 @@ let test_delegate_freeze_undelegate_unfreeze () =
       ~do_slash:_
     ->
       do_undelegate ctxt amount_delegated >>=? fun ctxt ->
-      do_unfreeze ctxt >>=? fun _ -> return_unit)
+      do_unfreeze ctxt >>=? fun (_ : context) -> return_unit)
 
 let test_delegate_double_freeze_undelegate_unfreeze () =
   test_scenario
@@ -585,8 +585,8 @@ let test_delegate_double_freeze_undelegate_unfreeze () =
     ->
       do_freeze ~deposit_account:deposit_account2 ctxt >>=? fun ctxt ->
       do_undelegate ctxt amount_delegated >>=? fun ctxt ->
-      do_unfreeze ~deposit_account:deposit_account1 ctxt >>=? fun _ ->
-      return_unit)
+      do_unfreeze ~deposit_account:deposit_account1 ctxt
+      >>=? fun (_ : context) -> return_unit)
 
 let test_delegate_freeze_redelegate_unfreeze () =
   test_scenario
@@ -603,7 +603,8 @@ let test_delegate_freeze_redelegate_unfreeze () =
     ->
       do_delegate ~delegate:delegate2 ctxt >>=? fun (ctxt, amount2) ->
       do_unfreeze ctxt >>=? fun ctxt ->
-      do_undelegate ~delegate:delegate2 ctxt amount2 >>=? fun _ -> return_unit)
+      do_undelegate ~delegate:delegate2 ctxt amount2 >>=? fun (_ : context) ->
+      return_unit)
 
 let test_delegate_freeze_unfreeze_freeze_redelegate () =
   test_scenario
@@ -621,7 +622,8 @@ let test_delegate_freeze_unfreeze_freeze_redelegate () =
       do_unfreeze ctxt >>=? fun ctxt ->
       do_freeze ctxt >>=? fun ctxt ->
       do_delegate ~delegate:delegate2 ctxt >>=? fun (ctxt, amount2) ->
-      do_undelegate ~delegate:delegate2 ctxt amount2 >>=? fun _ -> return_unit)
+      do_undelegate ~delegate:delegate2 ctxt amount2 >>=? fun (_ : context) ->
+      return_unit)
 
 let test_delegate_freeze_slash_undelegate () =
   let slash_amount = Tez.of_mutez_exn 1000L in
@@ -638,8 +640,8 @@ let test_delegate_freeze_slash_undelegate () =
       ~do_slash
     ->
       do_slash ctxt >>=? fun ctxt ->
-      do_undelegate ctxt (amount_delegated -! slash_amount) >>=? fun _ ->
-      return_unit)
+      do_undelegate ctxt (amount_delegated -! slash_amount)
+      >>=? fun (_ : context) -> return_unit)
 
 let tests =
   Tztest.

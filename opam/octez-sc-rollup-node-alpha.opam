@@ -30,8 +30,8 @@ depends: [
   "data-encoding" { >= "0.6" & < "0.7" }
   "irmin-pack" { >= "3.4.0" & < "3.5.0" }
   "irmin" { >= "3.4.0" & < "3.5.0" }
-  "ringo" { >= "0.9" }
-  "ringo-lwt" { >= "0.9" }
+  "aches" { >= "1.0.0" }
+  "aches-lwt" { >= "1.0.0" }
   "tezos-injector-alpha"
   "tezos-scoru-wasm"
 ]

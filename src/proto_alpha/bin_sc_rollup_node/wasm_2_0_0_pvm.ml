@@ -72,10 +72,14 @@ module Impl : Pvm.S = struct
     | Waiting_for_reveal (Sc_rollup.Reveal_raw_data hash) ->
         Format.asprintf
           "Waiting for preimage reveal %a"
-          Sc_rollup.Input_hash.pp
+          Sc_rollup.Reveal_hash.pp
           hash
     | Waiting_for_reveal Sc_rollup.Reveal_metadata -> "Waiting for metadata"
     | Computing -> "Computing"
+
+  module Backend = Make_backend (Wasm_2_0_0_proof_format.Tree)
+
+  let eval_many = Backend.compute_step_many
 end
 
 include Impl

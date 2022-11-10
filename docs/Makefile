@@ -56,7 +56,7 @@ manuals: \
 	@../tezos-admin-client man -verbosity 3 -format html | sed "s#${HOME}#\$$HOME#g" > api/tezos-admin-client.html
 	@../tezos-signer man -verbosity 3 -format html | sed "s#${HOME}#\$$HOME#g" > api/tezos-signer.html
 	@../tezos-codec man -verbosity 3 -format html | sed "s#${HOME}#\$$HOME#g" > api/tezos-codec.html
-	@../tezos-snoop man -verbosity 3 -format html | sed "s#${HOME}#\$$HOME#g" > api/tezos-snoop.html
+	@../octez-snoop man -verbosity 3 -format html | sed "s#${HOME}#\$$HOME#g" > api/tezos-snoop.html
 
 # artificially depend on docexes to avoid concurrent dunes
 .PHONY: odoc
@@ -86,6 +86,10 @@ linkcheck: html
 	@$(SPHINXBUILD) -b linkcheck "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) >$@;\
 		RESULT=$$?; cat $(BUILDDIR)/output.txt; exit $$RESULT
 
+.PHONY: fixlinkcheck
+fixlinkcheck:
+	@scripts/update_links.sh
+
 .PHONY: redirectcheck
 redirectcheck: html
 	@cd $$(pwd)/.. ; ./scripts/lint.sh --check-redirects
@@ -109,7 +113,7 @@ scriptsindoccheck:
 	scripts/test_doc_scripts.sh install-opam-bionic
 	scripts/test_doc_scripts.sh install-opam-focal
 	scripts/test_doc_scripts.sh compile-release-sources-buster
-	scripts/test_doc_scripts.sh compile-master-sources-buster
+	scripts/test_doc_scripts.sh compile-sources-buster
 
 # build dune targets together to avoid concurrent dunes
 docexes:

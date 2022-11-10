@@ -1303,7 +1303,7 @@ and ('a, 's, 'b, 'f, 'c, 'u) logging_function =
   'c * 'u ->
   unit
 
-and execution_trace = (Script.location * Gas.t * Script.expr list) list
+and execution_trace = (Script.location * Gas.Arith.fp * Script.expr list) list
 
 and logger = {
   log_interp : 'a 's 'b 'f 'c 'u. ('a, 's, 'b, 'f, 'c, 'u) logging_function;
@@ -1667,9 +1667,6 @@ val lambda_t :
   (('arg, 'ret) lambda, no) ty tzresult
 
 val option_t : Script.location -> ('v, 'c) ty -> ('v option, 'c) ty tzresult
-
-val comparable_option_t :
-  Script.location -> 'v comparable_ty -> 'v option comparable_ty tzresult
 
 val option_mutez_t : Tez.t option comparable_ty
 

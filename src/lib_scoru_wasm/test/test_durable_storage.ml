@@ -41,6 +41,9 @@ module Wasm = Wasm_pvm.Make (Tree)
 module Wrapped_tree_runner =
   Tezos_tree_encoding.Runner.Make (Tezos_tree_encoding.Wrapped)
 
+let value_store_key_too_large =
+  Values.(Num (I32 Host_funcs.Error.(code Store_key_too_large)))
+
 let equal_chunks c1 c2 =
   let open Lwt.Syntax in
   let* c1 = Chunked_byte_vector.to_string c1 in
@@ -96,16 +99,16 @@ let test_store_has_key_too_long () =
   let values =
     Values.[Num (I32 src); Num (I32 (Int32.of_int @@ String.length key))]
   in
-  let* _ =
-    assert_invalid_key (fun () ->
-        Eval.invoke
-          ~module_reg
-          ~caller:module_key
-          ~durable
-          host_funcs_registry
-          Host_funcs.Internal_for_tests.store_has
-          values)
+  let* _, res =
+    Eval.invoke
+      ~module_reg
+      ~caller:module_key
+      ~durable
+      host_funcs_registry
+      Host_funcs.Internal_for_tests.store_has
+      values
   in
+  assert (res = [value_store_key_too_large]) ;
   (* We can tell [store_has] that [key] is one byte less long, which makes it valid *)
   let values =
     Values.[Num (I32 src); Num (I32 (Int32.of_int @@ (String.length key - 1)))]
@@ -355,7 +358,7 @@ let test_store_delete () =
       Host_funcs.Internal_for_tests.store_delete
       values
   in
-  assert (result = []) ;
+  assert (result = [Values.(Num (I32 0l))]) ;
   let durable = Durable.of_storage_exn durable in
   let* value_opt =
     Durable.find_value durable @@ Durable.key_of_string_exn key
@@ -523,7 +526,8 @@ let test_store_copy () =
       Host_funcs.Internal_for_tests.store_copy
       values
   in
-  assert (result = []) ;
+  (* If everything goes well, the function returns `0l`. *)
+  assert (result = [Values.(Num (I32 0l))]) ;
   let durable = Durable.of_storage_exn durable in
 
   let* new_value_at_two =
@@ -574,7 +578,6 @@ let test_store_move () =
 
   let from_offset = src in
   let from_length = Int32.of_int @@ String.length from_key in
-  Printf.printf "fl= %li" from_length ;
   let to_offset = Int32.(add from_offset from_length) in
   let to_length = Int32.of_int @@ String.length to_key in
   let values =
@@ -595,7 +598,8 @@ let test_store_move () =
       Host_funcs.Internal_for_tests.store_move
       values
   in
-  assert (result = []) ;
+  (* If everything goes well, the function returns `0l`. *)
+  assert (result = [Values.(Num (I32 0l))]) ;
   let durable = Durable.of_storage_exn durable in
   let* empty_from_tree_opt =
     Durable.find_value durable @@ Durable.key_of_string_exn from_key
@@ -659,6 +663,70 @@ let test_store_read () =
   let* value = Memory.load_bytes memory dst expected_read_bytes_len in
   assert (value = expected_read_bytes) ;
   return_ok_unit
+
+let test_store_value_size () =
+  let open Lwt_syntax in
+  let to_res x = [Values.(Num (I32 x))] in
+  let invoke_store_value_size ~module_reg ~caller ~durable host_funcs_reg values
+      =
+    let+ _durable, result =
+      Eval.invoke
+        ~module_reg
+        ~caller
+        ~durable
+        host_funcs_reg
+        Host_funcs.Internal_for_tests.store_value_size
+        values
+    in
+    result
+  in
+
+  let key = "/a/b/c" in
+  let invalid_key = "a/b" in
+  let missing_key = "/a/b/d" in
+  let contents = "foobar" in
+  let contents_len = Int32.of_int (String.length contents) in
+  let* durable = make_durable [(key, contents)] in
+  let src = 20l in
+  let module_reg, module_key, host_funcs_registry =
+    make_module_inst [key; invalid_key; missing_key; contents] src
+  in
+  let key_src, key_len = (src, Int32.of_int (String.length key)) in
+  let invalid_key_src, invalid_key_len =
+    (Int32.add key_src key_len, Int32.of_int (String.length invalid_key))
+  in
+  let missing_key_src, missing_key_len =
+    ( Int32.add invalid_key_src invalid_key_len,
+      Int32.of_int (String.length missing_key) )
+  in
+  let* result =
+    invoke_store_value_size
+      ~module_reg
+      ~caller:module_key
+      ~durable
+      host_funcs_registry
+      Values.[Num (I32 key_src); Num (I32 key_len)]
+  in
+  assert (result = [Values.Num (I32 contents_len)]) ;
+  let* result =
+    invoke_store_value_size
+      ~module_reg
+      ~caller:module_key
+      ~durable
+      host_funcs_registry
+      Values.[Num (I32 invalid_key_src); Num (I32 invalid_key_len)]
+  in
+  assert (result = to_res Host_funcs.Error.(code Store_invalid_key)) ;
+  let* result =
+    invoke_store_value_size
+      ~module_reg
+      ~caller:module_key
+      ~durable
+      host_funcs_registry
+      Values.[Num (I32 missing_key_src); Num (I32 missing_key_len)]
+  in
+  assert (result = to_res Host_funcs.Error.(code Store_not_a_value)) ;
+  Lwt_result_syntax.return_unit
 
 let test_store_write () =
   let open Lwt_syntax in
@@ -781,6 +849,7 @@ let tests =
     tztest "store_move" `Quick test_store_move;
     tztest "store_read" `Quick test_store_read;
     tztest "store_write" `Quick test_store_write;
+    tztest "store_value_size" `Quick test_store_value_size;
     tztest "Durable: find value" `Quick test_durable_find_value;
     tztest "Durable: count subtrees" `Quick test_durable_count_subtrees;
     tztest "Durable: invalid keys" `Quick test_durable_invalid_keys;

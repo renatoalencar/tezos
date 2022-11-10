@@ -136,7 +136,7 @@ let cost_of_instr : type a s r f. (a, s, r, f) kinstr -> a -> s -> Gas.cost =
       let ss = accu in
       Interp_costs.concat_string_precheck ss
   | ISlice_string _ ->
-      let _offset = accu in
+      let (_offset : Script_int.n Script_int.num) = accu in
       let _length, (s, _) = stack in
       Interp_costs.slice_string s
   | IConcat_bytes_pair _ ->
@@ -240,8 +240,8 @@ let cost_of_instr : type a s r f. (a, s, r, f) kinstr -> a -> s -> Gas.cost =
       let outputs = List.length tx.outputs in
       Interp_costs.sapling_verify_update_deprecated ~inputs ~outputs
   | ISplit_ticket _ ->
-      let ticket = accu and (amount_a, amount_b), _ = stack in
-      Interp_costs.split_ticket ticket.amount amount_a amount_b
+      let (amount_a, amount_b), _ = stack in
+      Interp_costs.split_ticket amount_a amount_b
   | IJoin_tickets (_, ty, _) ->
       let ticket_a, ticket_b = accu in
       Interp_costs.join_tickets ty ticket_a ticket_b
@@ -353,7 +353,8 @@ let cost_of_instr : type a s r f. (a, s, r, f) kinstr -> a -> s -> Gas.cost =
   | ITicket _ | ITicket_deprecated _ -> Interp_costs.ticket
   | IRead_ticket _ -> Interp_costs.read_ticket
   | IOpen_chest _ ->
-      let _chest_key = accu and chest, (time, _) = stack in
+      let (_chest_key : Script_timelock.chest_key) = accu
+      and chest, (time, _) = stack in
       Interp_costs.open_chest ~chest ~time:(Script_int.to_zint time)
   | IEmit _ -> Interp_costs.emit
   | ILog _ -> Gas.free

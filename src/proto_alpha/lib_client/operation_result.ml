@@ -328,12 +328,8 @@ let pp_manager_operation_content (type kind) source ppf
         parameters_ty
         Blake2B.pp
         (Blake2B.hash_string [boot_sector])
-  | Sc_rollup_add_messages {rollup; messages = _} ->
-      Format.fprintf
-        ppf
-        "Smart contract rollup messages submission:@,Address: %a"
-        Sc_rollup.Address.pp
-        rollup
+  | Sc_rollup_add_messages {messages = _} ->
+      Format.pp_print_string ppf "Smart contract rollup messages submission"
   | Sc_rollup_cement {rollup; commitment} ->
       Format.fprintf
         ppf
@@ -533,7 +529,7 @@ let pp_ticket_receipt ppf ticket_receipt =
       updates
   in
   let pp_item ppf {ticket_token; updates} =
-    let {ticketer; contents_type; contents} = ticket_token in
+    let Ticket_token.{ticketer; contents_type; contents} = ticket_token in
     Format.fprintf
       ppf
       "Ticketer: %a@,Content type: %a@,Content: %a@,%a"

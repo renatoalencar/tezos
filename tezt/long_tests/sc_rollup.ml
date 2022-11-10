@@ -54,16 +54,13 @@ let hex_encode (input : string) : string =
    the kernel must fit into a single Tezos operation.
 *)
 let read_kernel name : string =
-  let module G = Tezos_scoru_wasm.Gather_floppies in
   let open Tezt.Base in
   let kernel_file =
     project_root // Filename.dirname __FILE__
     // "../../src/proto_alpha/lib_protocol/test/integration/wasm_kernel"
     // (name ^ ".wasm")
   in
-  hex_encode
-  @@ Data_encoding.Binary.to_string_exn G.origination_message_encoding
-  @@ G.Complete_kernel (Bytes.of_string @@ read_file kernel_file)
+  hex_encode (read_file kernel_file)
 
 type sc_rollup_constants = {
   origination_size : int;
@@ -106,12 +103,11 @@ let setup ?commitment_period ?challenge_window ?timeout f ~protocol =
   let operator = Constant.bootstrap1.alias in
   f node client operator
 
-let send_message client sc_rollup msg =
+let send_message client msg =
   let* () =
     Client.Sc_rollup.send_message
       ~hooks
       ~src:Constant.bootstrap2.alias
-      ~dst:sc_rollup
       ~msg
       client
   in
@@ -205,7 +201,7 @@ let test_rollup_node_advances_pvm_state protocols ~test_name ~boot_sector
         match forwarder with
         | None ->
             (* External message *)
-            send_message client sc_rollup (sf "[%S]" message)
+            send_message client (sf "[%S]" message)
         | Some forwarder ->
             (* Internal message through forwarder *)
             let* () =

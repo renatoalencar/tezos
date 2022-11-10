@@ -44,8 +44,7 @@ type validation_result =
   | Precheck_failed of error trace
 
 module Block_hash_ring =
-  (val Ringo.(map_maker ~replacement:FIFO ~overflow:Strong ~accounting:Precise))
-    (Block_hash)
+  Aches.Vache.Map (Aches.Vache.FIFO_Precise) (Aches.Vache.Strong) (Block_hash)
 
 module Name = struct
   type t = unit

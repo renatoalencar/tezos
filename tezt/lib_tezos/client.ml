@@ -1144,8 +1144,7 @@ let originate_contract ?hooks ?log_output ?endpoint ?wait ?init ?burn_cap
 
 let spawn_stresstest ?endpoint ?(source_aliases = []) ?(source_pkhs = [])
     ?(source_accounts = []) ?seed ?fee ?gas_limit ?transfers ?tps
-    ?(single_op_per_pkh_per_block = false) ?fresh_probability
-    ?smart_contract_parameters client =
+    ?fresh_probability ?smart_contract_parameters client =
   let sources =
     (* [sources] is a string containing all the [source_aliases],
        [source_pkhs], and [source_accounts] in JSON format, as
@@ -1251,12 +1250,10 @@ let spawn_stresstest ?endpoint ?(source_aliases = []) ?(source_pkhs = [])
   @ make_int_opt_arg "--tps" tps
   @ make_float_opt_arg "--fresh-probability" fresh_probability
   @ smart_contract_parameters_arg
-  @
-  if single_op_per_pkh_per_block then ["--single-op-per-pkh-per-block"] else []
 
 let stresstest ?endpoint ?source_aliases ?source_pkhs ?source_accounts ?seed
-    ?fee ?gas_limit ?transfers ?tps ?single_op_per_pkh_per_block
-    ?fresh_probability ?smart_contract_parameters client =
+    ?fee ?gas_limit ?transfers ?tps ?fresh_probability
+    ?smart_contract_parameters client =
   spawn_stresstest
     ?endpoint
     ?source_aliases
@@ -1267,7 +1264,6 @@ let stresstest ?endpoint ?source_aliases ?source_pkhs ?source_accounts ?seed
     ?gas_limit
     ?transfers
     ?tps
-    ?single_op_per_pkh_per_block
     ?fresh_probability
     ?smart_contract_parameters
     client
@@ -1838,19 +1834,16 @@ module Sc_rollup = struct
     let* output = Process.check_and_read_stdout process in
     parse_rollup_address_in_receipt output
 
-  let spawn_send_message ?hooks ?(wait = "none") ?burn_cap ~msg ~src ~dst client
-      =
+  let spawn_send_message ?hooks ?(wait = "none") ?burn_cap ~msg ~src client =
     spawn_command
       ?hooks
       client
       (["--wait"; wait]
-      @ ["send"; "sc"; "rollup"; "message"; msg; "from"; src; "to"; dst]
+      @ ["send"; "sc"; "rollup"; "message"; msg; "from"; src]
       @ optional_arg "burn-cap" Tez.to_string burn_cap)
 
-  let send_message ?hooks ?wait ?burn_cap ~msg ~src ~dst client =
-    let process =
-      spawn_send_message ?hooks ?wait ?burn_cap ~msg ~src ~dst client
-    in
+  let send_message ?hooks ?wait ?burn_cap ~msg ~src client =
+    let process = spawn_send_message ?hooks ?wait ?burn_cap ~msg ~src client in
     Process.check process
 
   let publish_commitment ?hooks ?(wait = "none") ?burn_cap ~src ~sc_rollup

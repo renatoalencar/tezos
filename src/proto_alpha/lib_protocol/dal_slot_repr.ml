@@ -230,7 +230,7 @@ module History = struct
   end
 
   module Content_prefix = struct
-    let _prefix = "dash1"
+    let (_prefix : string) = "dash1"
 
     (* 32 *)
     let b58check_prefix = "\002\224\072\094\219" (* dash1(55) *)
@@ -248,7 +248,7 @@ module History = struct
   (* Pointers of the skip lists are used to encode the content and the
      backpointers. *)
   module Pointer_prefix = struct
-    let _prefix = "dask1"
+    let (_prefix : string) = "dask1"
 
     (* 32 *)
     let b58check_prefix = "\002\224\072\115\035" (* dask1(55) *)
@@ -622,15 +622,7 @@ module History = struct
       in
       let page = {Dal.content = data; index = pid.Page.page_index} in
       let fail_with_error_msg what =
-        Format.kasprintf
-          proof_error
-          "%s (page data=%s, page id=%a, commitment=%a)."
-          what
-          (Bytes.to_string data)
-          Page.pp
-          pid
-          Commitment.pp
-          commitment
+        Format.kasprintf proof_error "%s (page id=%a)." what Page.pp pid
       in
       match Dal.verify_page dal commitment page proof with
       | Ok true -> return ()

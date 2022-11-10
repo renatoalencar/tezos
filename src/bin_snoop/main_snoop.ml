@@ -375,8 +375,9 @@ let codegen_cmd solution model_name codegen_options =
             let module Transform = Fixed_point_transform.Apply (P) in
             ((module Transform) : Costlang.transform)
       in
+      let name = Printf.sprintf "model_%s" model_name in
       let code =
-        match Codegen.codegen model sol transform with
+        match Codegen.codegen model sol transform name with
         | exception e ->
             Format.eprintf
               "Error in code generation for model %s, exiting@."
@@ -388,7 +389,7 @@ let codegen_cmd solution model_name codegen_options =
             exit 1
         | Some s -> s
       in
-      Format.printf "let model_%s = %a@." model_name Codegen.pp_expr code
+      Format.printf "%a@." Codegen.pp_model code
 
 let codegen_all_cmd solution regexp codegen_options =
   let () = Format.eprintf "regexp: %s@." regexp in
@@ -407,7 +408,7 @@ let codegen_all_cmd solution regexp codegen_options =
         ((module Transform) : Costlang.transform)
   in
   let result = Codegen.codegen_module models sol transform in
-  Codegen.pp_structure_item Format.std_formatter result
+  Codegen.pp_module Format.std_formatter result
 
 (* -------------------------------------------------------------------------- *)
 (* Entrypoint *)

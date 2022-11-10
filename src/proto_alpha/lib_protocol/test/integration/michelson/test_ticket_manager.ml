@@ -56,7 +56,9 @@ let init_env () =
 
 let collect_token_amounts ctxt tickets =
   let accum (tokens, ctxt) ticket =
-    let token, amount = Ticket_token.token_and_amount_of_ex_ticket ticket in
+    let token, amount =
+      Ticket_scanner.ex_token_and_amount_of_ex_ticket ticket
+    in
     let tokens = (token, Script_int.(to_zint (amount :> n num))) :: tokens in
     return (tokens, ctxt)
   in
@@ -715,7 +717,7 @@ let test_create_contract_and_send_tickets () =
   (* Add a green ticket to the lazy storage at index 1 and send it to the green
      ticket-receiver *)
   let* b = test b @@ TM.add_lazy ~index:1 ~content:"Green" ~amount:10 in
-  let* _b =
+  let* (_b : Block.t) =
     test b @@ TM.send_lazy ~index:1 ~recipient:ticket_receiver_green_2
   in
   return ()
@@ -735,7 +737,9 @@ let test_add_remove_from_lazy_storage () =
   (* Remove the big-map. *)
   let* b = tm b TM.remove_all_lazy in
   (* Add back a ticket at index 1. *)
-  let* _b = tm b @@ TM.add_lazy ~index:1 ~content:"Red" ~amount:10 in
+  let* (_b : Block.t) =
+    tm b @@ TM.add_lazy ~index:1 ~content:"Red" ~amount:10
+  in
   return ()
 
 (** Test send to self and replace big-map. *)
@@ -748,7 +752,7 @@ let test_send_self_replace_big_map () =
   let* b = tm b @@ TM.add_lazy ~index:3 ~content:"Blue" ~amount:1 in
   let* b = tm b @@ TM.send_self_replace_big_map in
   let* b = tm b @@ TM.send_self_replace_big_map in
-  let* _b = tm b @@ TM.send_self_replace_big_map in
+  let* (_b : Block.t) = tm b @@ TM.send_self_replace_big_map in
   return ()
 
 (** Test add to and remove from strict storage. *)
@@ -764,7 +768,7 @@ let test_add_remove_strict () =
 
   (* Remove strict tickets *)
   let* b = tm b @@ TM.remove_strict in
-  let* _b = tm b @@ TM.add_strict ~content:"Red" ~amount:1 in
+  let* (_b : Block.t) = tm b @@ TM.add_strict ~content:"Red" ~amount:1 in
   return ()
 
 (** Test mixed operations. *)
@@ -780,7 +784,7 @@ let test_mixed_operations () =
   let* b = tm b @@ TM.add_lazy ~index:3 ~content:"Blue" ~amount:1 in
   (* Remove strict and lazy *)
   let* b = tm b @@ TM.remove_strict in
-  let* _b = tm b @@ TM.remove_all_lazy in
+  let* (_b : Block.t) = tm b @@ TM.remove_all_lazy in
   return ()
 
 let tests =

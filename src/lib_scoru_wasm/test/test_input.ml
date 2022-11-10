@@ -43,7 +43,6 @@ let write_input () =
     Input_buffer.enqueue
       input
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 2;
         payload = Bytes.of_string "hello";
@@ -53,7 +52,6 @@ let write_input () =
     Input_buffer.enqueue
       input
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 3;
         payload = Bytes.of_string "hello";
@@ -66,7 +64,6 @@ let write_input () =
         Input_buffer.enqueue
           input
           {
-            rtype = 1l;
             raw_level = 2l;
             message_counter = Z.of_int 2;
             payload = Bytes.of_string "hello";
@@ -88,7 +85,6 @@ let read_input () =
     Input_buffer.enqueue
       input_buffer
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 2;
         payload = Bytes.of_string "hello";
@@ -100,7 +96,6 @@ let read_input () =
       ~input_buffer
       ~output_buffer
       ~memory
-      ~rtype_offset:0l
       ~level_offset:4l
       ~id_offset:10l
       ~dst:50l
@@ -110,9 +105,7 @@ let read_input () =
   assert (output_level = 2l) ;
   assert (output_id = Z.of_int (-1)) ;
   assert (Input_buffer.num_elements input_buffer = Z.zero) ;
-  assert (result = 5) ;
-  let* m = Memory.load_bytes memory 0l 1 in
-  assert (m = "\001") ;
+  assert (result = 5l) ;
   let* m = Memory.load_bytes memory 4l 1 in
   assert (m = "\002") ;
   let* m = Memory.load_bytes memory 10l 1 in
@@ -133,14 +126,43 @@ let read_input_no_messages () =
       ~input_buffer
       ~output_buffer
       ~memory
-      ~rtype_offset:0l
       ~level_offset:4l
       ~id_offset:10l
       ~dst:50l
       ~max_bytes:36000l
   in
   assert (Input_buffer.num_elements input_buffer = Z.zero) ;
-  assert (result = 0) ;
+  assert (result = 0l) ;
+  Lwt.return @@ Result.return_unit
+
+let read_input_too_large () =
+  let open Lwt.Syntax in
+  let lim = Types.(MemoryType {min = 100l; max = Some 1000l}) in
+  let memory = Memory.alloc lim in
+  let input_buffer = Input_buffer.alloc () in
+  let output_buffer = Output_buffer.alloc () in
+  let* () =
+    Input_buffer.enqueue
+      input_buffer
+      {
+        raw_level = 2l;
+        message_counter = Z.of_int 2;
+        payload = Bytes.make 5000 '\000';
+      }
+  in
+  assert (Input_buffer.num_elements input_buffer = Z.one) ;
+  let* result =
+    Host_funcs.Aux.read_input
+      ~input_buffer
+      ~output_buffer
+      ~memory
+      ~level_offset:4l
+      ~id_offset:10l
+      ~dst:50l
+      ~max_bytes:36000l
+  in
+  assert (Input_buffer.num_elements input_buffer = Z.zero) ;
+  assert (result = Host_funcs.Error.(code Input_output_too_large)) ;
   Lwt.return @@ Result.return_unit
 
 let test_host_fun () =
@@ -150,7 +172,6 @@ let test_host_fun () =
     Input_buffer.enqueue
       input
       {
-        rtype = 1l;
         raw_level = 2l;
         message_counter = Z.of_int 2;
         payload = Bytes.of_string "hello";
@@ -164,13 +185,8 @@ let test_host_fun () =
   in
   let module_inst = {module_inst with memories} in
   let values =
-    Values.
-      [
-        Num (I32 0l); Num (I32 4l); Num (I32 10l); Num (I32 50l); Num (I32 3600l);
-      ]
+    Values.[Num (I32 4l); Num (I32 10l); Num (I32 50l); Num (I32 3600l)]
   in
-  let host_funcs_registry = Tezos_webassembly_interpreter.Host_funcs.empty () in
-  Host_funcs.register_host_funcs host_funcs_registry ;
 
   let module_reg = Instance.ModuleMap.create () in
   let module_key = Instance.Module_key "test" in
@@ -180,7 +196,7 @@ let test_host_fun () =
     Eval.invoke
       ~module_reg
       ~caller:module_key
-      host_funcs_registry
+      Host_funcs.all
       ~input
       Host_funcs.Internal_for_tests.read_input
       values
@@ -188,8 +204,6 @@ let test_host_fun () =
   let* module_inst = Instance.resolve_module_ref module_reg module_key in
   let* memory = Lazy_vector.Int32Vector.get 0l module_inst.memories in
   assert (Input_buffer.num_elements input = Z.zero) ;
-  let* m = Memory.load_bytes memory 0l 1 in
-  assert (m = "\001") ;
   let* m = Memory.load_bytes memory 4l 1 in
   assert (m = "\002") ;
   let* m = Memory.load_bytes memory 10l 1 in
@@ -204,5 +218,6 @@ let tests =
     tztest "Write input" `Quick write_input;
     tztest "Read input" `Quick read_input;
     tztest "Read input no messages" `Quick read_input_no_messages;
+    tztest "Read input too large" `Quick read_input_too_large;
     tztest "Host read input" `Quick test_host_fun;
   ]

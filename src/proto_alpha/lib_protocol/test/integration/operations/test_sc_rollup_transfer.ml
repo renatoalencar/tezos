@@ -168,7 +168,7 @@ let transfer ?expect_apply_failure b ~from ~to_ ~param ~entrypoint =
 let test_transfer_to_bad_sc_rollup_address () =
   let* b, c, contract, _rollup = context_init "unit" in
   let not_an_sc_rollup_address = {|"scr1HLXM32GacPNDrhHDLAssZG88eWqCUbyL"|} in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c
@@ -195,7 +195,7 @@ let test_transfer_to_bad_sc_rollup_address () =
 let test_transfer_to_unknown_sc_rollup_address () =
   let* b, c, contract, _rollup = context_init "unit" in
   let unknown_sc_rollup_address = {|"scr1HLXM32GacPNDrhHDLAssZG88eWqCUbyLF"|} in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c
@@ -219,7 +219,7 @@ let test_transfer_to_unknown_sc_rollup_address () =
 let test_transfer_to_wrongly_typed_sc_rollup () =
   let* b, c, contract, rollup = context_init "unit" in
   let param = Format.sprintf "%S" (Sc_rollup.Address.to_b58check rollup) in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c
@@ -243,7 +243,7 @@ let test_transfer_to_wrongly_typed_sc_rollup () =
 let test_transfer_non_zero_amount () =
   let* b, c, contract, rollup = context_init "int" in
   let param = Format.sprintf "%S" (Sc_rollup.Address.to_b58check rollup) in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c
@@ -270,7 +270,7 @@ let test_transfer_non_zero_amount_via_entrypoint () =
   let param =
     Format.sprintf "%S" (Sc_rollup.Address.to_b58check rollup ^ "%use_this_one")
   in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c
@@ -292,25 +292,28 @@ let test_transfer_non_zero_amount_via_entrypoint () =
 (* Now, transfer with a zero-amount and check that the inbox has been updated correctly. *)
 let test_transfer_works () =
   let* b, c, contract, rollup = context_init "int" in
-  let* inbox_before = Context.Sc_rollup.inbox (B b) rollup in
+  let* inbox_before = Context.Sc_rollup.inbox (B b) in
   let* expected_inbox_after =
     let* inc = Incremental.begin_construction b in
     let ctxt = Incremental.alpha_ctxt inc in
     let payload = Expr.from_string "42" in
-    let* expected_inbox_after, _size, _ctxt =
-      Sc_rollup.Inbox.add_internal_message
+    let* _inbox, _size, ctxt =
+      Sc_rollup.Inbox.add_deposit
         ctxt
-        rollup
+        ~destination:rollup
         ~payload
         ~sender:contract
         ~source:(Context.Contract.pkh c)
       >|= Environment.wrap_tzresult
     in
+    let* expected_inbox_after, _size, _ctxt =
+      Sc_rollup.Inbox.add_end_of_level ctxt >|= Environment.wrap_tzresult
+    in
     return expected_inbox_after
   in
   let param = Format.sprintf "%S" (Sc_rollup.Address.to_b58check rollup) in
   let* b = transfer b ~from:c ~to_:contract ~param ~entrypoint:"transfer_int" in
-  let* inbox_after = Context.Sc_rollup.inbox (B b) rollup in
+  let* inbox_after = Context.Sc_rollup.inbox (B b) in
   let* () =
     Assert.not_equal_with_encoding
       ~loc:__LOC__
@@ -328,7 +331,7 @@ let test_transfer_works () =
 let test_transfer_zero_amount_ticket () =
   let* b, c, contract, rollup = context_init "ticket string" in
   let param = Format.sprintf "%S" (Sc_rollup.Address.to_b58check rollup) in
-  let* _b =
+  let* (_b : Block.t) =
     transfer
       b
       ~from:c

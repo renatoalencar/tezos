@@ -83,7 +83,7 @@ val prepare :
   Context.t ->
   t tzresult Lwt.t
 
-type previous_protocol = Genesis of Parameters_repr.t | Kathmandu_014
+type previous_protocol = Genesis of Parameters_repr.t | Lima_015
 
 val prepare_first_block :
   level:int32 ->
@@ -387,10 +387,9 @@ module Tx_rollup : sig
 end
 
 module Sc_rollup_in_memory_inbox : sig
-  val current_messages :
-    t -> Sc_rollup_repr.t -> (Context.tree option * t) tzresult
+  val current_messages : t -> Context.tree option
 
-  val set_current_messages : t -> Sc_rollup_repr.t -> Context.tree -> t tzresult
+  val set_current_messages : t -> Context.tree -> t
 end
 
 module Dal : sig
@@ -422,8 +421,4 @@ module Dal : sig
   (** [shards ctxt ~endorser] returns the shard assignment for the
      [endorser] for the current level. *)
   val shards : t -> endorser:Signature.Public_key_hash.t -> int list
-end
-
-module Migration_from_Kathmandu : sig
-  val reset_samplers : t -> t tzresult
 end

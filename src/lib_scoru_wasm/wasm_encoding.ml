@@ -870,16 +870,15 @@ let admin_instr_encoding =
 
 let input_buffer_message_encoding =
   conv_lwt
-    (fun (rtype, raw_level, message_counter, payload) ->
+    (fun (raw_level, message_counter, payload) ->
       let open Lwt.Syntax in
       let+ payload = C.to_bytes payload in
-      Input_buffer.{rtype; raw_level; message_counter; payload})
-    (fun Input_buffer.{rtype; raw_level; message_counter; payload} ->
+      Input_buffer.{raw_level; message_counter; payload})
+    (fun Input_buffer.{raw_level; message_counter; payload} ->
       let payload = C.of_bytes payload in
-      Lwt.return (rtype, raw_level, message_counter, payload))
-    (tup4
+      Lwt.return (raw_level, message_counter, payload))
+    (tup3
        ~flatten:true
-       (value ["rtype"] Data_encoding.int32)
        (value ["raw-level"] Data_encoding.int32)
        (value ["message-counter"] Data_encoding.z)
        chunked_byte_vector)
@@ -987,10 +986,10 @@ let packed_frame_stack_encoding =
        (scope ["frame"] frame_encoding)
        (scope ["label_kont"] packed_label_kont_encoding))
 
-let input_hash_encoding =
+let reveal_hash_encoding =
   conv
-    Reveal.input_hash_from_string_exn
-    Reveal.input_hash_to_string
+    Reveal.reveal_hash_from_string_exn
+    Reveal.reveal_hash_to_string
     (value [] (Data_encoding.Fixed.string 32))
 
 let reveal_encoding =
@@ -999,9 +998,14 @@ let reveal_encoding =
     [
       case
         "Reveal_raw_data"
-        input_hash_encoding
-        (function Reveal.Reveal_raw_data hash -> Some hash)
+        reveal_hash_encoding
+        (function Reveal.Reveal_raw_data hash -> Some hash | _ -> None)
         (fun hash -> Reveal_raw_data hash);
+      case
+        "Reveal_metadata"
+        (value [] Data_encoding.unit)
+        (function Reveal.Reveal_metadata -> Some () | _ -> None)
+        (fun () -> Reveal_metadata);
     ]
 
 let invoke_step_kont_encoding =

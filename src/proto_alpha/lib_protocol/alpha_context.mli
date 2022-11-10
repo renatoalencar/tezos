@@ -99,6 +99,10 @@ module Slot : sig
   module Map : Map.S with type key = t
 
   module Set : Set.S with type elt = t
+
+  module Internal_for_tests : sig
+    val of_int : int -> t tzresult
+  end
 end
 
 (** This module re-exports definitions from {!Tez_repr}. *)
@@ -514,6 +518,8 @@ module Entrypoint : module type of Entrypoint_repr
 (** This module re-exports definitions from {!Script_repr} and
     {!Michelson_v1_primitives}. *)
 module Script : sig
+  type error += Lazy_script_decode
+
   type prim = Michelson_v1_primitives.prim =
     | K_parameter
     | K_storage
@@ -1596,6 +1602,8 @@ end
 module Contract : sig
   type t = Implicit of public_key_hash | Originated of Contract_hash.t
 
+  (** Functions related to contracts address. *)
+
   type error += Non_existing_contract of t
 
   include BASIC_DATA with type t := t
@@ -1612,6 +1620,8 @@ module Contract : sig
 
   val of_b58check : string -> t tzresult
 
+  (** Functions related to contracts existence. *)
+
   val exists : context -> t -> bool Lwt.t
 
   val must_exist : context -> t -> unit tzresult Lwt.t
@@ -1621,6 +1631,19 @@ module Contract : sig
   val must_be_allocated : context -> t -> unit tzresult Lwt.t
 
   val list : context -> t list Lwt.t
+
+  (** Functions related to both implicit accounts and originated contracts. *)
+
+  (** See {!Contract_storage.get_balance}. *)
+  val get_balance : context -> t -> Tez.t tzresult Lwt.t
+
+  val get_balance_carbonated : context -> t -> (context * Tez.t) tzresult Lwt.t
+
+  val get_frozen_bonds : context -> t -> Tez.t tzresult Lwt.t
+
+  val get_balance_and_frozen_bonds : context -> t -> Tez.t tzresult Lwt.t
+
+  (** Functions related to implicit accounts. *)
 
   (** See {!Contract_manager_storage.get_manager_key}. *)
   val get_manager_key :
@@ -1641,28 +1664,44 @@ module Contract : sig
     public_key ->
     context tzresult Lwt.t
 
+  val get_counter : context -> public_key_hash -> Z.t tzresult Lwt.t
+
+  val increment_counter : context -> public_key_hash -> context tzresult Lwt.t
+
+  val check_counter_increment :
+    context -> public_key_hash -> Z.t -> unit tzresult Lwt.t
+
+  (** See {!Contract_storage.check_allocated_and_get_balance}. *)
+  val check_allocated_and_get_balance :
+    context -> public_key_hash -> Tez.t tzresult Lwt.t
+
+  (** See {!Contract_storage.simulate_spending}. *)
+  val simulate_spending :
+    context ->
+    balance:Tez.t ->
+    amount:Tez.t ->
+    public_key_hash ->
+    (Tez.t * bool) tzresult Lwt.t
+
+  (** Functions related to smart contracts. *)
+
   val get_script_code :
-    context -> t -> (context * Script.lazy_expr option) tzresult Lwt.t
+    context ->
+    Contract_hash.t ->
+    (context * Script.lazy_expr option) tzresult Lwt.t
 
   val get_script :
     context -> Contract_hash.t -> (context * Script.t option) tzresult Lwt.t
 
   val get_storage :
-    context -> t -> (context * Script.expr option) tzresult Lwt.t
+    context -> Contract_hash.t -> (context * Script.expr option) tzresult Lwt.t
 
-  val get_counter : context -> public_key_hash -> Z.t tzresult Lwt.t
+  val used_storage_space : context -> t -> Z.t tzresult Lwt.t
 
-  (** See {Contract_storage.get_balance}. *)
-  val get_balance : context -> t -> Tez.t tzresult Lwt.t
-
-  val get_balance_carbonated : context -> t -> (context * Tez.t) tzresult Lwt.t
-
-  (** See {Contract_storage.check_allocated_and_get_balance}. *)
-  val check_allocated_and_get_balance :
-    context -> public_key_hash -> Tez.t tzresult Lwt.t
+  val paid_storage_space : context -> t -> Z.t tzresult Lwt.t
 
   val increase_paid_storage :
-    context -> t -> amount_in_bytes:Z.t -> context tzresult Lwt.t
+    context -> Contract_hash.t -> amount_in_bytes:Z.t -> context tzresult Lwt.t
 
   val fresh_contract_from_current_nonce :
     context -> (context * Contract_hash.t) tzresult
@@ -1670,9 +1709,19 @@ module Contract : sig
   val originated_from_current_nonce :
     since:context -> until:context -> Contract_hash.t list tzresult Lwt.t
 
-  val get_frozen_bonds : context -> t -> Tez.t tzresult Lwt.t
+  val update_script_storage :
+    context ->
+    Contract_hash.t ->
+    Script.expr ->
+    Lazy_storage.diffs option ->
+    context tzresult Lwt.t
 
-  val get_balance_and_frozen_bonds : context -> t -> Tez.t tzresult Lwt.t
+  val raw_originate :
+    context ->
+    prepaid_bootstrap_storage:bool ->
+    Contract_hash.t ->
+    script:Script.t * Lazy_storage.diffs option ->
+    context tzresult Lwt.t
 
   module Legacy_big_map_diff : sig
     type item = private
@@ -1694,37 +1743,6 @@ module Contract : sig
 
     val of_lazy_storage_diff : Lazy_storage.diffs -> t
   end
-
-  val update_script_storage :
-    context ->
-    t ->
-    Script.expr ->
-    Lazy_storage.diffs option ->
-    context tzresult Lwt.t
-
-  val used_storage_space : context -> t -> Z.t tzresult Lwt.t
-
-  val paid_storage_space : context -> t -> Z.t tzresult Lwt.t
-
-  val increment_counter : context -> public_key_hash -> context tzresult Lwt.t
-
-  val check_counter_increment :
-    context -> public_key_hash -> Z.t -> unit tzresult Lwt.t
-
-  (** See {Contract_storage.simulate_spending}. *)
-  val simulate_spending :
-    context ->
-    balance:Tez.t ->
-    amount:Tez.t ->
-    public_key_hash ->
-    (Tez.t * bool) tzresult Lwt.t
-
-  val raw_originate :
-    context ->
-    prepaid_bootstrap_storage:bool ->
-    Contract_hash.t ->
-    script:Script.t * Lazy_storage.diffs option ->
-    context tzresult Lwt.t
 
   (** Functions for handling the delegate of a contract.*)
   module Delegate : sig
@@ -2468,6 +2486,7 @@ module Receipt : sig
   val group_balance_updates : balance_updates -> balance_updates tzresult
 end
 
+(** This module re-exports definitions from {!Delegate_consensus_key}. *)
 module Consensus_key : sig
   type pk = {
     delegate : Signature.Public_key_hash.t;
@@ -2488,7 +2507,7 @@ module Consensus_key : sig
 end
 
 (** This module re-exports definitions from {!Delegate_storage},
-   {!Delegate_missed_endorsements_storage},
+   {!Delegate_consensus_key}, {!Delegate_missed_endorsements_storage},
    {!Delegate_slashed_deposits_storage}, {!Delegate_cycles}. *)
 module Delegate : sig
   val frozen_deposits_limit :
@@ -2985,11 +3004,15 @@ module Sc_rollup : sig
 
   (** See {!Sc_rollup_inbox_message_repr}. *)
   module Inbox_message : sig
-    type internal_inbox_message = {
-      payload : Script.expr;
-      sender : Contract_hash.t;
-      source : public_key_hash;
-    }
+    type internal_inbox_message =
+      | Transfer of {
+          payload : Script.expr;
+          sender : Contract_hash.t;
+          source : public_key_hash;
+          destination : t;
+        }
+      | Start_of_level
+      | End_of_level
 
     type t = Internal of internal_inbox_message | External of string
 
@@ -3016,13 +3039,21 @@ module Sc_rollup : sig
 
   type input = Inbox_message of inbox_message | Reveal of reveal_data
 
+  val pp_inbox_message : Format.formatter -> inbox_message -> unit
+
+  val pp_reveal_data : Format.formatter -> reveal_data -> unit
+
+  val pp_input : Format.formatter -> input -> unit
+
   val input_equal : input -> input -> bool
 
   val input_encoding : input Data_encoding.t
 
   module Input_hash : S.HASH
 
-  type reveal = Reveal_raw_data of Input_hash.t | Reveal_metadata
+  module Reveal_hash : S.HASH
+
+  type reveal = Reveal_raw_data of Reveal_hash.t | Reveal_metadata
 
   type input_request =
     | No_input_required
@@ -3046,9 +3077,6 @@ module Sc_rollup : sig
     val equal : t -> t -> bool
 
     val inbox_level : t -> Raw_level.t
-
-    val refresh_commitment_period :
-      commitment_period:int32 -> level:Raw_level.t -> t -> t
 
     type history_proof
 
@@ -3105,7 +3133,7 @@ module Sc_rollup : sig
         tree option ->
         (History.t * history_proof) tzresult Lwt.t
 
-      val take_snapshot : current_level:Raw_level.t -> t -> history_proof
+      val take_snapshot : t -> history_proof
 
       type inclusion_proof
 
@@ -3139,7 +3167,7 @@ module Sc_rollup : sig
         Raw_level.t * Z.t ->
         (proof * inbox_message option) tzresult Lwt.t
 
-      val empty : inbox_context -> Sc_rollup_repr.t -> Raw_level.t -> t Lwt.t
+      val empty : inbox_context -> Raw_level.t -> t Lwt.t
 
       module Internal_for_tests : sig
         val eq_tree : tree -> tree -> bool
@@ -3151,6 +3179,8 @@ module Sc_rollup : sig
           inclusion_proof option tzresult
 
         val serialized_proof_of_string : string -> serialized_proof
+
+        val inbox_message_counter : t -> Z.t
       end
     end
 
@@ -3191,17 +3221,21 @@ module Sc_rollup : sig
       Merkelized_operations with type tree = P.tree and type inbox_context = P.t
 
     val add_external_messages :
-      context -> rollup -> string list -> (t * Z.t * context) tzresult Lwt.t
+      context -> string list -> (t * Z.t * context) tzresult Lwt.t
 
-    val add_internal_message :
+    val add_deposit :
       context ->
-      rollup ->
       payload:Script.expr ->
       sender:Contract_hash.t ->
       source:public_key_hash ->
+      destination:rollup ->
       (t * Z.t * context) tzresult Lwt.t
 
-    val inbox : context -> rollup -> (t * context) tzresult Lwt.t
+    val add_start_of_level : context -> (t * Z.t * context) tzresult Lwt.t
+
+    val add_end_of_level : context -> (t * Z.t * context) tzresult Lwt.t
+
+    val get_inbox : context -> (t * context) tzresult Lwt.t
   end
 
   module Outbox : sig
@@ -3530,6 +3564,7 @@ module Sc_rollup : sig
           proof : Inbox.serialized_proof;
         }
       | Reveal_proof of reveal_proof
+      | First_inbox_message
 
     type t = {pvm_step : wrapped_proof; input_proof : input_proof option}
 
@@ -3542,7 +3577,7 @@ module Sc_rollup : sig
 
       val proof_encoding : proof Data_encoding.t
 
-      val reveal : Input_hash.t -> string option
+      val reveal : Reveal_hash.t -> string option
 
       module Inbox_with_history : sig
         include Inbox.Merkelized_operations with type inbox_context = context
@@ -4375,7 +4410,6 @@ and _ manager_operation =
     }
       -> Kind.sc_rollup_originate manager_operation
   | Sc_rollup_add_messages : {
-      rollup : Sc_rollup.t;
       messages : string list;
     }
       -> Kind.sc_rollup_add_messages manager_operation
@@ -4896,25 +4930,6 @@ module Ticket_balance : sig
   end
 end
 
-(** This module re-exports definitions from {!Ticket_receipt_repr}. *)
-module Ticket_receipt : sig
-  type update = {account : Destination.t; amount : Z.t}
-
-  type ticket_token = {
-    ticketer : Contract.t;
-    contents_type : Script.expr;
-    contents : Script.expr;
-  }
-
-  type item = {ticket_token : ticket_token; updates : update list}
-
-  type t = item list
-
-  val item_encoding : item Data_encoding.t
-
-  val encoding : t Data_encoding.t
-end
-
 module First_level_of_protocol : sig
   (** Get the level of the first block of this protocol. *)
   val get : context -> Raw_level.t tzresult Lwt.t
@@ -5001,7 +5016,7 @@ end
 (** This module re-exports definitions from {!Fees_storage}. *)
 module Fees : sig
   val record_paid_storage_space :
-    context -> Contract.t -> (context * Z.t * Z.t) tzresult Lwt.t
+    context -> Contract_hash.t -> (context * Z.t * Z.t) tzresult Lwt.t
 
   val record_global_constant_storage_space : context -> Z.t -> context * Z.t
 

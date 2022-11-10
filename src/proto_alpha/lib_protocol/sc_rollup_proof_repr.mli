@@ -68,6 +68,11 @@ type reveal_proof =
       to give a valid refutation proof ; or
 
     - a proof of a reveal satisfiability.
+
+    - a claim that the input involved is the first input of the inbox, which
+      does not need to be proved as we know by construction what is
+      the input (i.e. the [Start_of_level] of the level after the rollup's
+      origination level).
 *)
 
 type input_proof =
@@ -77,6 +82,7 @@ type input_proof =
       proof : Sc_rollup_inbox_repr.serialized_proof;
     }
   | Reveal_proof of reveal_proof
+  | First_inbox_message
 
 type t = {pvm_step : Sc_rollups.wrapped_proof; input_proof : input_proof option}
 
@@ -133,7 +139,7 @@ module type PVM_with_context_and_state = sig
 
   val proof_encoding : proof Data_encoding.t
 
-  val reveal : Sc_rollup_PVM_sig.Input_hash.t -> string option
+  val reveal : Sc_rollup_PVM_sig.Reveal_hash.t -> string option
 
   module Inbox_with_history : sig
     include

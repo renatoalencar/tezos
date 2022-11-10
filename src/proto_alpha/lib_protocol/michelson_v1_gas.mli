@@ -69,10 +69,12 @@ module Cost_of : sig
 
     val if_cons : Gas.cost
 
+    (* The argument of this function is ignored when calculating gas cost. *)
     val list_map : 'a Script_typed_ir.boxed_list -> Gas.cost
 
     val list_size : Gas.cost
 
+    (* The argument of this function is ignored when calculating gas cost. *)
     val list_iter : 'a Script_typed_ir.boxed_list -> Gas.cost
 
     val empty_set : Gas.cost
@@ -350,11 +352,7 @@ module Cost_of : sig
 
     val read_ticket : Gas.cost
 
-    val split_ticket :
-      Script_typed_ir.ticket_amount ->
-      'a Script_int.num ->
-      'a Script_int.num ->
-      Gas.cost
+    val split_ticket : 'a Script_int.num -> 'a Script_int.num -> Gas.cost
 
     val join_tickets :
       'a Script_typed_ir.comparable_ty ->

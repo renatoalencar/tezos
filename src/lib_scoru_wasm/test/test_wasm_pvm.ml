@@ -81,9 +81,31 @@ let should_boot_unreachable_kernel ~max_steps kernel =
       state_after_second_message) ;
   return_ok_unit
 
-let should_run_debug_kernel kernel =
+let should_run_debug_kernel () =
   let open Lwt_syntax in
-  let* tree = initial_tree ~from_binary:true kernel in
+  let module_ =
+    {|
+(module
+ (import "rollup_safe_core" "write_debug"
+         (func $write_debug (param i32 i32)))
+ ;; Durable keys
+ (data (i32.const 100) "hello")
+ (memory 1)
+ (export "mem" (memory 0))
+ (func (export "kernel_next")
+       (local $hello_address i32)
+       (local $hello_length i32)
+
+       (local.set $hello_address (i32.const 100))
+       (local.set $hello_length (i32.const 5))
+
+       (call $write_debug (local.get $hello_address) (local.get $hello_length))
+       (nop)
+       )
+ )
+|}
+  in
+  let* tree = initial_tree ~from_binary:false module_ in
   (* Make the first ticks of the WASM PVM (parsing of origination
      message, parsing and init of the kernel), to switch it to
      “Input_requested” mode. *)
@@ -109,41 +131,124 @@ let add_value ?(content = "a very long value") tree key_steps =
     value
     tree
 
-let should_run_store_has_kernel kernel =
+let should_run_store_has_kernel () =
   let open Lwt_syntax in
-  let* tree = initial_tree ~from_binary:true kernel in
+  let module_ =
+    {|
+(module
+ (import "rollup_safe_core" "store_has"
+         (func $store_has (param i32 i32) (result i32)))
+ ;; Durable keys
+ (data (i32.const 100) "/hi/bye/hello/other")
+ (memory 1)
+ (export "mem" (memory 0))
+ (func $assert_eq
+       (param $address i32) (param $length i32) (param $expected i32)
+       (call $store_has (local.get $address) (local.get $length))
+       (local.get $expected)
+       (i32.ne)
+       (if (then unreachable))
+       )
+ (func (export "kernel_next")
+       (local $hi_address i32)
+       (local $hi_length i32)
+       (local $hi_bye_length i32)
+       (local $hello_address i32)
+       (local $hello_length i32)
+       (local $hello_other_length i32)
+
+       (local.set $hi_address (i32.const 100))
+       (local.set $hi_length (i32.const 3))
+       (local.set $hi_bye_length (i32.const 7))
+       (local.set $hello_address (i32.const 107))
+       (local.set $hello_length (i32.const 6))
+       (local.set $hello_other_length (i32.const 12))
+
+       (call $assert_eq
+             (local.get $hi_address)
+             (local.get $hi_length) (i32.const 2)) ;; Subtree = 2
+       (call $assert_eq
+             (local.get $hi_address)
+             (local.get $hi_bye_length)
+             (i32.const 1)) ;; Value = 1
+       (call $assert_eq
+             (local.get $hello_address)
+             (local.get $hello_length) (i32.const 3)) ;; ValueWithSubtree = 3
+       (call $assert_eq
+             (local.get $hello_address)
+             (local.get $hello_other_length)
+             (i32.const 0)) ;; UnknownKey = 0
+       (nop)
+       )
+ )
+  |}
+  in
+  let* tree = initial_tree ~from_binary:false module_ in
   let* tree = add_value tree ["hi"; "bye"] in
   let* tree = add_value tree ["hello"] in
   let* tree = add_value tree ["hello"; "universe"] in
-  (* Make the first ticks of the WASM PVM (parsing of origination
-     message, parsing and init of the kernel), to switch it to
-     “Input_requested” mode. *)
+  (* Make the first ticks of the WASM PVM (parsing of origination message), to
+     switch it to “Input_requested” mode. *)
   let* tree = eval_until_input_requested tree in
   let* state_before_first_message =
     Wasm.Internal_for_tests.get_tick_state tree
   in
   (* The kernel is not expected to fail, the PVM should not be in stuck state. *)
   assert (not @@ is_stuck state_before_first_message) ;
-  (* We now delete the path ["hello"; "universe"] - this will cause the kernel
-     assertion on this path to fail, and the PVM should become stuck. *)
+  (* We first evaluate the kernel normally, and it shouldn't fail. *)
   let* tree = set_input_step "test" 0 tree in
-  let* tree =
-    Test_encodings_util.Tree.remove tree ["durable"; "hello"; "universe"; "_"]
-  in
   let* tree = eval_until_input_requested tree in
   let* state_after_first_message =
     Wasm.Internal_for_tests.get_tick_state tree
   in
+  (* The kernel is not expected to fail, the PVM should not be in stuck state. *)
+  assert (not @@ is_stuck state_after_first_message) ;
+  let* tree = set_input_step "test" 1 tree in
+  (* We now delete the path ["hello"; "universe"] - this will cause gthe kernel
+     assertion on this path to fail, and the PVM should become stuck on the
+     third assert in the kernel. *)
+  let* tree =
+    Test_encodings_util.Tree.remove tree ["durable"; "hello"; "universe"; "_"]
+  in
+  let* tree = eval_until_input_requested tree in
+  let* state_after_second_message =
+    Wasm.Internal_for_tests.get_tick_state tree
+  in
   (* The kernel is now expected to fail, the PVM should be in stuck state. *)
-  assert (is_stuck state_after_first_message) ;
+  assert (is_stuck state_after_second_message) ;
   return_ok_unit
 
 (* The `should_run_store_list_size_kernel` asserts
    whether the tree has three subtrees. Note that the `_` subtree is included
    and so, after adding the `four` subtree the state will become stuck.*)
-let should_run_store_list_size_kernel kernel =
+let should_run_store_list_size_kernel () =
   let open Lwt_syntax in
-  let* tree = initial_tree ~from_binary:true kernel in
+  let module_ =
+    {|
+(module
+ (import "rollup_safe_core" "store_list_size"
+         (func $store_list_size (param i32 i32) (result i64)))
+ ;; Durable keys
+ (data (i32.const 100) "/one")
+ (memory 1)
+ (export "mem" (memory 0))
+ (func (export "kernel_next")
+       (local $one_address i32)
+       (local $one_length i32)
+
+       (local.set $one_address (i32.const 100))
+       (local.set $one_length (i32.const 4))
+
+       (call $store_list_size
+             (local.get $one_address) (local.get $one_length))
+       (i64.ne (i64.const 3))
+       (if (then unreachable))
+       (nop)
+       )
+ )
+  |}
+  in
+  let* tree = initial_tree ~from_binary:false module_ in
   let* tree = add_value tree ["one"] in
   let* tree = add_value tree ["one"; "two"] in
   let* tree = add_value tree ["one"; "three"] in
@@ -172,10 +277,43 @@ let should_run_store_list_size_kernel kernel =
   assert (is_stuck state_after_second_message) ;
   return_ok_unit
 
-let should_run_store_delete_kernel kernel =
+let should_run_store_delete_kernel () =
+  let module_ =
+    {|
+(module
+ (import "rollup_safe_core" "store_delete"
+         (func $store_delete (param i32 i32) (result i32)))
+ ;; Durable keys
+ (data (i32.const 100) "/one") ;; /one
+ (data (i32.const 104) "/two") ;; /two
+ (data (i32.const 108) "/three") ;; /three
+ (data (i32.const 114) "/four") ;; /four
+ (memory 1)
+ (export "mem" (memory 0))
+ (func (export "kernel_next")
+       (local $one_address i32)
+       (local $one_length i32)
+       (local $four_address i32)
+       (local $four_length i32)
+
+       (local.set $one_address (i32.const 100))
+       (local.set $one_length (i32.const 4))
+       (local.set $four_address (i32.const 108)) ;; /three + /four
+       (local.set $four_length (i32.const 11)) ;; length(/three) + length(/four)
+
+       (call $store_delete (local.get $one_address) (local.get $one_length))
+       (drop)
+       (call $store_delete (local.get $four_address) (local.get $four_length))
+       (drop)
+       (nop)
+       )
+ )
+
+|}
+  in
   let open Lwt_syntax in
   let open Test_encodings_util in
-  let* tree = initial_tree ~from_binary:true kernel in
+  let* tree = initial_tree ~from_binary:false module_ in
   let* tree = add_value tree ["one"] in
   let* tree = add_value tree ["one"; "two"] in
   let* tree = add_value tree ["three"] in
@@ -360,40 +498,28 @@ let test_rebuild_snapshotable_state () =
     Context_hash.equal hash_input_tree_after_eval hash_input_rebuilded_tree) ;
   return_unit
 
-let test_invalid_key_truncated () =
+let test_unkown_host_function_truncated () =
   let open Lwt_result_syntax in
-  let key =
-    "durable/key/that/should/be/eventually/truncated/in/the/stuck/state"
-    ^ "/for/being/too/long/and/not/fitting/into/the/expected/bytes"
-    ^ "/invalid/because/of/missing/root/slash"
-  in
-  let key_offset = 100 in
-  let key_length = String.length key in
-  (* Let's ensure the key will not fit in the Stuck message. *)
-  assert (key_length > Wasm_pvm_errors.messages_maximum_size) ;
-  (* This module initializes the memory with the key starting at [key_offset].
-     It will fail on `store_has` during `kernel_next` because the key doesn't
-     start with '/'. *)
+  let rollup_safe_core = "rollup_safe_core" in
+  let unknown_function = String.make 100 'a' in
+  (* This module imports an unknown function of length 100, which is the maximum
+     accepted by our interpreter. The error message will be trunctated *)
   let module_ =
     Format.sprintf
       {|
         (module
-          (import "rollup_safe_core" "store_has"
-            (func $store_has (param i32 i32) (result i32))
+          (import "%s" "%s"
+            (func $unkown_function (param i32 i32) (result i32))
           )
           (memory 1)
-          (data (i32.const %d) "%s")
           (export "mem" (memory 0))
           (func (export "kernel_next")
-            (call $store_has (i32.const %d) (i32.const %d))
             (unreachable)
           )
         )
     |}
-      key_offset
-      key
-      key_offset
-      key_length
+      rollup_safe_core
+      unknown_function
   in
   (* Let's first init the tree to compute. *)
   let*! tree = initial_tree ~from_binary:false module_ in
@@ -404,12 +530,18 @@ let test_invalid_key_truncated () =
   in
   let*! tree_stuck = eval_until_input_requested tree_with_dummy_input in
   let*! state = Wasm.Internal_for_tests.get_tick_state tree_stuck in
+  (* The message as originally outputed before being
+     truncated. *)
+  let reason =
+    Format.sprintf "Unexpected import: %s.%s" rollup_safe_core unknown_function
+  in
+  (* Let's check the message will be indeed truncated, otherwise this test is
+     not relevant. *)
+  assert (String.length reason > Wasm_pvm_errors.messages_maximum_size) ;
   (* The final reason for being stuck should be truncated after
      [Wasm_pvm_errors.messages_maximum_size]. *)
-  let reason =
-    String.sub ("Invalid_key: " ^ key) 0 Wasm_pvm_errors.messages_maximum_size
-  in
-  assert (is_stuck ~step:`Eval ~reason state) ;
+  let reason = String.sub reason 0 Wasm_pvm_errors.messages_maximum_size in
+  assert (is_stuck ~step:`Link ~reason state) ;
   return_unit
 
 let test_bulk_noops () =
@@ -429,7 +561,7 @@ let test_bulk_noops () =
   let* base_tree = set_input_step "dummy_input" 0 base_tree in
 
   let rec goto_snapshot ticks tree_slow =
-    let* tree_fast = Wasm.compute_step_many ~max_steps:ticks base_tree in
+    let* tree_fast, _ = Wasm.compute_step_many ~max_steps:ticks base_tree in
     let* tree_slow = Wasm.compute_step tree_slow in
 
     assert (
@@ -448,7 +580,7 @@ let test_bulk_noops () =
   assert (snapshot_info.input_request = Input_required) ;
 
   (* Try to advance past the snapshot point. *)
-  let* tree_fast =
+  let* tree_fast, _ =
     Wasm.compute_step_many ~max_steps:(Int64.mul ticks 2L) base_tree
   in
 
@@ -757,28 +889,13 @@ let tests =
       (test_with_kernel
          Kernels.unreachable_kernel
          (should_boot_unreachable_kernel ~max_steps:Int64.max_int));
-    tztest
-      "Test write_debug kernel"
-      `Quick
-      (test_with_kernel Kernels.test_write_debug_kernel should_run_debug_kernel);
-    tztest
-      "Test store-has kernel"
-      `Quick
-      (test_with_kernel
-         Kernels.test_store_has_kernel
-         should_run_store_has_kernel);
+    tztest "Test write_debug kernel" `Quick should_run_debug_kernel;
+    tztest "Test store-has kernel" `Quick should_run_store_has_kernel;
     tztest
       "Test store-list-size kernel"
       `Quick
-      (test_with_kernel
-         Kernels.test_store_list_size_kernel
-         should_run_store_list_size_kernel);
-    tztest
-      "Test store-delete kernel"
-      `Quick
-      (test_with_kernel
-         Kernels.test_store_delete_kernel
-         should_run_store_delete_kernel);
+      should_run_store_list_size_kernel;
+    tztest "Test store-delete kernel" `Quick should_run_store_delete_kernel;
     tztest "Test snapshotable state" `Quick test_snapshotable_state;
     tztest
       "Test rebuild snapshotable state"
@@ -787,7 +904,7 @@ let tests =
     tztest
       "Test Stuck state is truncated on long messages"
       `Quick
-      test_invalid_key_truncated;
+      test_unkown_host_function_truncated;
     tztest "Test bulk no-ops function properly" `Quick test_bulk_noops;
     tztest "Test durable store io" `Quick test_durable_store_io;
     tztest "Test reboot" `Quick test_kernel_reboot;

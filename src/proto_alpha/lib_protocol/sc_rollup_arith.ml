@@ -602,18 +602,18 @@ module Make (Context : P) :
     end)
 
     module Required_reveal = Make_var (struct
-      type t = PS.Input_hash.t option
+      type t = PS.Reveal_hash.t option
 
       let initial = None
 
-      let encoding = Data_encoding.option PS.Input_hash.encoding
+      let encoding = Data_encoding.option PS.Reveal_hash.encoding
 
       let name = "required_pre_image_hash"
 
       let pp fmt v =
         match v with
         | None -> Format.fprintf fmt "<none>"
-        | Some h -> PS.Input_hash.pp fmt h
+        | Some h -> PS.Reveal_hash.pp fmt h
     end)
 
     module Metadata = Make_var (struct
@@ -927,10 +927,14 @@ module Make (Context : P) :
       match Sc_rollup_inbox_message_repr.deserialize payload with
       | Error _ -> None
       | Ok (External payload) -> Some payload
-      | Ok (Internal {payload; _}) -> (
-          match Micheline.root payload with
-          | String (_, payload) -> Some payload
-          | _ -> None)
+      | Ok (Internal internal_inbox_message) -> (
+          match internal_inbox_message with
+          | Transfer {payload; _} -> (
+              match Micheline.root payload with
+              | String (_, payload) -> Some payload
+              | _ -> None)
+          | Start_of_level -> None
+          | End_of_level -> None)
     in
     match payload with
     | Some payload ->
@@ -1047,7 +1051,7 @@ module Make (Context : P) :
   let parse : unit t =
     let open Monad.Syntax in
     let produce_add =
-      let* _ = lexeme in
+      let* (_ : string) = lexeme in
       let* () = next_char in
       let* () = Code.inject IAdd in
       return ()
@@ -1111,12 +1115,12 @@ module Make (Context : P) :
         | Some (' ' | '\n') -> next_char
         | Some '+' -> produce_add
         | Some d when is_digit d ->
-            let* _ = lexeme in
+            let* (_ : string) = lexeme in
             let* () = next_char in
             let* () = Parser_state.set ParseInt in
             return ()
         | Some d when is_letter d ->
-            let* _ = lexeme in
+            let* (_ : string) = lexeme in
             let* () = next_char in
             let* () = Parser_state.set ParseVar in
             return ()
@@ -1175,7 +1179,7 @@ module Make (Context : P) :
         if Compare.Int.(len > 5) && Compare.String.(String.sub x 0 5 = "hash:")
         then
           let hash = String.sub x 5 (len - 5) in
-          match PS.Input_hash.of_b58check_opt hash with
+          match PS.Reveal_hash.of_b58check_opt hash with
           | None -> stop_evaluating false
           | Some hash ->
               let* () = Required_reveal.set (Some hash) in

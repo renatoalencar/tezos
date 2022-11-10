@@ -209,7 +209,7 @@ end = struct
     (* bake `nb_blocks_before_denunciation` before double preend. denunciation *)
     bake_n nb_blocks_before_denunciation blk >>=? fun blk ->
     let op : Operation.packed = Op.double_preendorsement (B blk) op1 op2 in
-    Context.get_baker (B blk) ~round:0 >>=? fun baker ->
+    Context.get_baker (B blk) ~round:Round.zero >>=? fun baker ->
     bake ~policy:(By_account baker) blk ~operations:[op] >>= function
     | Ok new_head ->
         test_expected_ok loc baker blk new_head d1 d2 >>=? fun () ->
@@ -328,7 +328,8 @@ end = struct
     in
     Context.get_bakers (B blk_a) >>=? fun bakers ->
     let baker = Context.get_first_different_baker delegate bakers in
-    Context.Delegate.full_balance (B blk_a) baker >>=? fun _full_balance ->
+    Context.Delegate.full_balance (B blk_a) baker
+    >>=? fun (_full_balance : Tez.t) ->
     Block.bake
       ~policy:(By_account baker)
       ~operations:[operation; operation2]

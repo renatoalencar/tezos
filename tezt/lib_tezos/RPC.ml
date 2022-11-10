@@ -703,23 +703,31 @@ let get_chain_block_context_contract_storage ?(chain = "main") ?(block = "head")
     ["chains"; chain; "blocks"; block; "context"; "contracts"; id; "storage"]
     Fun.id
 
-let get_chain_block_context_sc_rollup ?(chain = "main") ?(block = "head") () =
-  make GET ["chains"; chain; "blocks"; block; "context"; "sc_rollup"] Fun.id
-
-let get_chain_block_context_sc_rollup_inbox ?(chain = "main") ?(block = "head")
-    sc_rollup =
+let post_chain_block_context_contract_ticket_balance ?(chain = "main")
+    ?(block = "head") ~id ~data () =
   make
-    GET
+    POST
     [
       "chains";
       chain;
       "blocks";
       block;
       "context";
-      "sc_rollup";
-      sc_rollup;
-      "inbox";
+      "contracts";
+      id;
+      "ticket_balance";
     ]
+    ~data
+    JSON.as_int
+
+let get_chain_block_context_sc_rollups ?(chain = "main") ?(block = "head") () =
+  make GET ["chains"; chain; "blocks"; block; "context"; "sc_rollups"] Fun.id
+
+let get_chain_block_context_sc_rollups_inbox ?(chain = "main") ?(block = "head")
+    () =
+  make
+    GET
+    ["chains"; chain; "blocks"; block; "context"; "sc_rollups"; "inbox"]
     Fun.id
 
 let get_chain_block_context_sc_rollup_genesis_info ?(chain = "main")

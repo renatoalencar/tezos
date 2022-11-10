@@ -9,6 +9,8 @@ import/export feature: snapshots.  This procedure allows to gather all
 the data necessary to bootstrap a node from a single file within few
 minutes.
 
+.. _importing_a_snapshot:
+
 Importing a snapshot
 --------------------
 
@@ -166,13 +168,13 @@ represented as *cemented cycles* and will stay as it is for ever. Only
 the rest of the file contains data relative to the snapshot's target
 block, such as the current incomplete cycle and the block's associated
 ledger state. This canonical representation is well suited for
-distributing snapshots through `IPFS <https://ipfs.io/>`_.
+distributing snapshots through `IPFS <https://ipfs.tech/>`_.
 
 
 Export capabilities
 ~~~~~~~~~~~~~~~~~~~
 
-The following table recapitulate the different kind of snapshot that
+The following table recapitulates the different kinds of snapshots that
 can be exported from a given history mode node.
 
 +---------+---------------+-----------------+
@@ -192,6 +194,6 @@ There are several services providing node snapshots. They create snapshots
 of their nodes on a regular basis (usually daily) and make them available for
 download. These include:
 
-* `Giga Node <https://snapshots-tezos.giganode.io/>`_
 * `XTZ-Shots <https://xtz-shots.io/mainnet/>`_
 * `Lambs on acid <https://lambsonacid.nl/>`_
+* `Marigold snapshots <https://snapshots.tezos.marigold.dev/>`_
